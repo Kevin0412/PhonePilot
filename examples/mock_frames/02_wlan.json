@@ -1,0 +1,11 @@
+{
+  "foreground": "com.android.settings/.wifi.WifiSettings",
+  "width": 1080,
+  "height": 2400,
+  "elements": [
+    {"text": "WLAN", "center": [200, 160]},
+    {"text": "已连接", "center": [540, 360]},
+    {"text": "可用网络", "center": [540, 480]},
+    {"text": "HomeWiFi_5G", "center": [540, 620]}
+  ]
+}

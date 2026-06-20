@@ -1,0 +1,11 @@
+{
+  "name": "android-settings",
+  "expected_package": "com.android.settings",
+  "forbidden_markers": ["立即支付", "确认支付", "恢复出厂设置", "清除所有数据", "格式化"],
+  "payment_stop_markers": ["收银台", "支付方式", "立即支付", "确认支付"],
+  "manual_stop_markers": ["验证码", "人机验证", "指纹验证", "输入密码", "输入PIN", "面容"],
+  "success_stop_markers": [],
+  "loading_markers": ["加载中", "正在加载", "请稍候", "正在搜索", "扫描中"],
+  "recovery_markers": ["无法连接", "出错了", "发生错误", "未响应"],
+  "recovery_actions": ["重试", "确定", "知道了", "我知道了"]
+}

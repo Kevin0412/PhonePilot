@@ -1,0 +1,12 @@
+{
+  "foreground": "com.android.settings",
+  "width": 1080,
+  "height": 2400,
+  "elements": [
+    {"text": "设置", "center": [200, 160]},
+    {"text": "WLAN", "center": [540, 520]},
+    {"text": "蓝牙", "center": [540, 680]},
+    {"text": "显示", "center": [540, 840]},
+    {"text": "声音与振动", "center": [540, 1000]}
+  ]
+}

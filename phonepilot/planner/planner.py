@@ -1,0 +1,158 @@
+"""Planner：自然语言 -> 结构化 Plan；运行期文本决策与视觉兜底。
+
+- ``make_plan``       一句话 -> Plan（容错解析，无步骤则抛 PlanError）。
+- ``decide``          运行期单步决策，mode="fast"（仅文字、关思考）或 "rich"（带坐标+图标、可思考）。
+- ``recover_vision``  OCR 处理不了时看截图给归一化坐标。
+所有运行期调用对异常一律降级为 wait，绝不让 LLM 故障中断主循环。
+"""
+
+from __future__ import annotations
+
+import logging
+from typing import Any, Optional
+
+from ..types import ACTION_KINDS, Action, Observation, Plan, RiskLevel, Step
+from . import context, prompts
+from .llm_base import LLMClient, VisionLLMClient
+
+log = logging.getLogger(__name__)
+
+
+class PlanError(RuntimeError):
+    """规划阶段失败（无法产出有效计划）。"""
+
+
+_ACTION_ALIASES = {
+    "click": "tap",
+    "press": "tap",
+    "longpress": "long_press",
+    "long-press": "long_press",
+    "input": "text",
+    "type": "text",
+    "none": "wait",
+    "noop": "wait",
+    "idle": "wait",
+}
+_DIRECTION_SUFFIX = ("up", "down", "left", "right")
+
+
+def _coerce_point(value: Any) -> Optional[tuple[float, float]]:
+    if not isinstance(value, (list, tuple)) or len(value) < 2:
+        return None
+    try:
+        return (float(value[0]), float(value[1]))
+    except (TypeError, ValueError):
+        return None
+
+
+def action_from_dict(data: Any, *, default_reason: str = "") -> Action:
+    """把 LLM 返回的动作 dict 容错解析为 Action（不做几何/安全校验，那在 loop/safety）。"""
+    if not isinstance(data, dict):
+        return Action(kind="wait", reason="LLM 返回非对象")
+
+    raw = str(data.get("action", "")).strip().lower().replace(" ", "_")
+    direction = str(data.get("direction", "")).strip().lower()
+
+    # 从 "scroll_down" / "swipe_up" 这类动作名推断方向
+    for suffix in _DIRECTION_SUFFIX:
+        if raw.endswith("_" + suffix):
+            if not direction:
+                direction = suffix
+            raw = raw[: -(len(suffix) + 1)]
+            break
+
+    kind = _ACTION_ALIASES.get(raw, raw)
+    if kind not in ACTION_KINDS:
+        kind = "wait"
+
+    index_raw = data.get("index")
+    try:
+        index = int(index_raw) if index_raw is not None else None
+    except (TypeError, ValueError):
+        index = None
+
+    if kind == "text":
+        text = str(data.get("input") or data.get("text") or "")
+    else:
+        text = str(data.get("text") or "")
+
+    return Action(
+        kind=kind,
+        index=index,
+        text=text,
+        point=_coerce_point(data.get("point")),
+        from_norm=_coerce_point(data.get("from") or data.get("from_norm")),
+        to_norm=_coerce_point(data.get("to") or data.get("to_norm")),
+        direction=direction if direction in _DIRECTION_SUFFIX else "",
+        key=str(data.get("key") or ""),
+        risk=RiskLevel.from_str(data.get("risk")),
+        reason=str(data.get("reason") or default_reason),
+    )
+
+
+class Planner:
+    def __init__(
+        self,
+        llm: LLMClient,
+        vision: Optional[VisionLLMClient] = None,
+        *,
+        fast: Optional[dict] = None,
+        rich: Optional[dict] = None,
+    ) -> None:
+        self.llm = llm
+        self.vision = vision
+        self.fast = {"thinking": False, "max_tokens": 160, "temperature": 0.0, **(fast or {})}
+        self.rich = {"thinking": True, "max_tokens": 512, "temperature": 0.0, **(rich or {})}
+
+    # ---- 起始规划 ---- #
+    def make_plan(self, task: str, *, screen_hint: str = "") -> Plan:
+        user = f"用户任务：{task}"
+        if screen_hint:
+            user += f"\n\n当前屏幕文字（供参考）：\n{screen_hint}"
+        try:
+            data = self.llm.complete_json(
+                prompts.PLAN_SYSTEM_PROMPT,
+                user,
+                thinking=self.rich["thinking"],
+                max_tokens=max(640, int(self.rich["max_tokens"])),
+                temperature=0.0,
+            )
+        except Exception as exc:  # noqa: BLE001 - 统一转 PlanError
+            raise PlanError(f"规划调用失败：{exc}") from exc
+        plan = Plan.from_dict(task, data)
+        if not plan.steps:
+            raise PlanError(f"规划结果无有效步骤：{data}")
+        log.info("规划完成：%d 步，整体风险=%s", len(plan.steps), plan.overall_risk.value)
+        return plan
+
+    # ---- 运行期文本决策 ---- #
+    def decide(self, obs: Observation, plan: Plan, step: Step, step_idx: int, *, mode: str = "fast") -> Action:
+        opts = self.fast if mode == "fast" else self.rich
+        builder = context.build_user_fast if mode == "fast" else context.build_user_rich
+        user = builder(plan, step, step_idx, obs)
+        try:
+            data = self.llm.complete_json(
+                prompts.DECIDE_SYSTEM_PROMPT,
+                user,
+                thinking=bool(opts["thinking"]),
+                max_tokens=int(opts["max_tokens"]),
+                temperature=float(opts["temperature"]),
+            )
+        except Exception as exc:  # noqa: BLE001 - 降级为 wait，不中断主循环
+            log.warning("LLM decide(%s) 失败：%s", mode, exc)
+            return Action(kind="wait", reason=f"llm-{mode} error: {exc}")
+        return action_from_dict(data, default_reason=f"{mode}-llm")
+
+    # ---- 视觉兜底 ---- #
+    def recover_vision(self, obs: Observation, image: Any, plan: Plan, step: Step, step_idx: int) -> Action:
+        if self.vision is None:
+            return Action(kind="wait", reason="未配置视觉客户端")
+        user = context.build_user_vision(plan, step, step_idx)
+        try:
+            data = self.vision.decide_json(
+                prompts.VISION_SYSTEM_PROMPT, user, image, max_tokens=int(self.rich["max_tokens"])
+            )
+        except Exception as exc:  # noqa: BLE001
+            log.warning("视觉决策失败：%s", exc)
+            return Action(kind="wait", reason=f"vision error: {exc}")
+        return action_from_dict(data, default_reason="vision")

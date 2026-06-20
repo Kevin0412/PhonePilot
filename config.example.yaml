@@ -1,0 +1,79 @@
+# PhonePilot 配置示例。复制为 config.yaml 并按需修改；CLI 参数优先级最高。
+# 密钥不写在这里，只走环境变量 / .env（见 .env.example）。
+
+executor:
+  kind: mock            # mock | adb   （Shizuku 执行器在原生 App 阶段用 Kotlin 实现）
+  serial: null          # adb 多设备时指定序列号
+  adb_path: adb         # adb 可执行文件路径
+  mock_frames_dir: examples/mock_frames
+
+ocr:
+  kind: rapidocr        # rapidocr | mock
+  min_score: 0.55
+  use_cuda: false
+  scale: 1.0
+
+icons:
+  enabled: false        # MVP 默认关；模板就位后开启
+  template_dir: phonepilot/perception/assets/icons
+
+llm:
+  kind: mock            # deepseek | claude | mock
+  # 快速路径：仅编号文字、关思考、低 token —— 高频默认路径，求效率
+  fast:
+    thinking: false
+    max_tokens: 160
+    temperature: 0.0
+  # 结构化路径：带坐标元素 + 图标、可开思考 —— 卡住时升级
+  rich:
+    thinking: true
+    max_tokens: 512
+    temperature: 0.0
+  deepseek:
+    model: deepseek-chat
+    base_url: https://api.deepseek.com
+    timeout: 8.0
+  claude:
+    model: claude-sonnet-4-5
+    base_url: https://api.anthropic.com
+    timeout: 30.0
+    anthropic_version: "2023-06-01"
+
+vision:                 # OCR 处理不了时的视觉兜底（看截图给归一化坐标）
+  enabled: false        # MVP 默认关
+  provider: qwen        # qwen | glm | kimi | mimo | custom（预置端点见 llm_vision.py）
+  base_url: null        # 留空用 provider 预置；custom 必填
+  model: null           # 留空用 provider 预置
+  timeout: 30.0
+  confirm_taps: true    # 视觉点击无文本交叉校验 -> 默认人工确认
+  max_calls: 4
+
+risk:
+  auto_confirm_low: true     # 低风险自动放行
+  auto_confirm_all: false    # 演示可设 true 跳过所有确认（谨慎）
+  confirm_coord_taps: true   # 坐标/视觉点击默认需确认
+  high_risk_markers: ["支付", "付款", "删除", "卸载", "转账", "发送", "授权", "格式化", "确认支付", "立即支付", "恢复出厂"]
+  forbidden_markers: ["立即支付", "确认支付", "确认付款"]   # 永不自动点击
+
+loop:
+  poll_interval: 0.3
+  after_click_delay: 0.4
+  transition_timeout: 12.0
+  transition_threshold: 0.025
+  llm_max_age: 4.0
+  vision_max_age: 6.0
+  llm_min_interval: 3.0
+  foreground_interval: 2.0
+
+budget:
+  max_steps: 30
+  max_recover_calls: 6
+  max_rich_calls: 8
+  max_vision_calls: 4
+  max_no_change_retries: 2
+  max_scrolls: 6
+  unknown_stop_seconds: 8.0
+  loading_stop_seconds: 45.0
+  total_timeout_s: 600.0
+
+run_dir: ./runs

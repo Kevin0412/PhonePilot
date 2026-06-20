@@ -1,0 +1,44 @@
+# 无真机演示 bundle：自带任务 + 计划 + 屏幕帧序列 + profile。
+# 运行： phonepilot run --example examples/open_wlan.yaml --auto-confirm-all
+#
+# 任务只读、可逆、低风险（进入设置的 WLAN 页面），适合在 PC 上跑通整条 感知→决策→执行 闭环。
+
+task: 打开设置并进入 WLAN 页面
+profile: profiles/android_settings.json
+
+# mock LLM 返回的结构化计划（真实 LLM 时由 Planner.make_plan 现场生成）
+mock_plan:
+  goal: 进入系统设置的 WLAN 页面
+  overall_risk: low
+  steps:
+    - goal: 打开设置
+      success_markers: [WLAN, 蓝牙, 显示]
+      target_markers: [设置]
+      risk: low
+    - goal: 进入 WLAN 页面
+      success_markers: [可用网络, 已连接]
+      target_markers: [WLAN, 无线网络]
+      risk: low
+  final_success_markers: [可用网络]
+
+# mock 屏幕帧序列：每次点击推进到下一帧，模拟页面跳转
+mock_frames:
+  - foreground: com.android.launcher
+    elements:
+      - {text: 时钟, center: [180, 1300]}
+      - {text: 相机, center: [400, 1300]}
+      - {text: 设置, center: [620, 1300]}
+      - {text: 应用商店, center: [840, 1300]}
+  - foreground: com.android.settings
+    elements:
+      - {text: 设置, center: [200, 160], style: normal}
+      - {text: WLAN, center: [540, 520]}
+      - {text: 蓝牙, center: [540, 680]}
+      - {text: 显示, center: [540, 840]}
+      - {text: 声音与振动, center: [540, 1000]}
+  - foreground: com.android.settings/.wifi.WifiSettings
+    elements:
+      - {text: WLAN, center: [200, 160]}
+      - {text: 可用网络, center: [540, 480]}
+      - {text: 已连接, center: [540, 360]}
+      - {text: HomeWiFi_5G, center: [540, 620]}

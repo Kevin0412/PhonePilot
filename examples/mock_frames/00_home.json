@@ -1,0 +1,11 @@
+{
+  "foreground": "com.android.launcher",
+  "width": 1080,
+  "height": 2400,
+  "elements": [
+    {"text": "时钟", "center": [180, 1300]},
+    {"text": "相机", "center": [400, 1300]},
+    {"text": "设置", "center": [620, 1300]},
+    {"text": "应用商店", "center": [840, 1300]}
+  ]
+}

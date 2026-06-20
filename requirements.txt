@@ -1,0 +1,13 @@
+# 核心运行依赖（纯逻辑核心仅需标准库 + 以下两项）
+numpy>=1.24
+pyyaml>=6
+
+# 可选：从 .env 读取密钥
+# python-dotenv>=1.0
+
+# 可选：接真机做本地感知（OCR）时再装。LLM/视觉走标准库 http.client，无需 SDK。
+# opencv-python>=4.8
+# rapidocr_onnxruntime>=1.3
+
+# 开发
+# pytest>=7.4

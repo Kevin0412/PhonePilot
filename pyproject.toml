@@ -1,0 +1,44 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "phonepilot"
+version = "0.1.0"
+description = "实验性 Android 手机 agent 框架：Shizuku 类 ADB 执行 + 本地 OCR/状态机 + LLM 高层规划，高风险动作人工确认"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [{ name = "PhonePilot" }]
+keywords = ["android", "agent", "shizuku", "ocr", "automation", "llm"]
+
+# 运行时核心依赖。重型/可选的视觉与 OCR 引擎依赖按需安装（见 [project.optional-dependencies]）。
+# 纯逻辑核心（types/signature/local_rules/safety/risk/budget）仅需标准库即可 import。
+dependencies = [
+    "numpy>=1.24",
+    "pyyaml>=6",
+]
+
+[project.optional-dependencies]
+# 真机 / OCR：在 PC 上接真机做感知时安装
+device = [
+    "opencv-python>=4.8",
+    "rapidocr_onnxruntime>=1.3",
+]
+# 从 .env 读取密钥（否则纯 os.environ 也可）
+dotenv = ["python-dotenv>=1.0"]
+# 开发
+dev = ["pytest>=7.4"]
+
+[project.scripts]
+phonepilot = "phonepilot.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["phonepilot*"]
+
+[tool.setuptools.package-data]
+phonepilot = ["perception/assets/icons/*.png"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
