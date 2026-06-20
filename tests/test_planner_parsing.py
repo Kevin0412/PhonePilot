@@ -56,6 +56,15 @@ def test_action_non_dict_is_wait():
     assert action_from_dict("garbage").kind == "wait"
 
 
+def test_tap_without_index_or_point_degrades_to_wait():
+    # 防止执行层因「缺少坐标」抛错崩溃
+    assert action_from_dict({"action": "tap"}).kind == "wait"
+    assert action_from_dict({"action": "long_press", "index": None}).kind == "wait"
+    # 有 index 或 point 则保留
+    assert action_from_dict({"action": "tap", "index": 0, "text": "x"}).kind == "tap"
+    assert action_from_dict({"action": "tap", "point": [0.5, 0.5]}).kind == "tap"
+
+
 # ---- Planner.make_plan ---- #
 def _plan_json():
     return {

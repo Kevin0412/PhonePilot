@@ -143,7 +143,11 @@ def cmd_run(args, cfg: dict) -> int:
     profile_path = args.profile
 
     if args.example:
-        bundle = _read_yaml(args.example)
+        try:
+            bundle = _read_yaml(args.example)
+        except Exception as exc:  # noqa: BLE001
+            log.error("加载示例 bundle 失败（%s）：%s", args.example, exc)
+            return 1
         cfg["executor"]["kind"] = "mock"
         cfg["llm"]["kind"] = "mock"
         task = bundle.get("task") or args.task
@@ -157,7 +161,18 @@ def cmd_run(args, cfg: dict) -> int:
         log.error("缺少任务：用 --task \"...\" 或 --example <bundle.yaml>")
         return 1
     if cfg["llm"]["kind"] == "mock" and args.plan_file and mock_plan is None:
-        mock_plan = _read_yaml(args.plan_file).get("mock_plan") or _read_yaml(args.plan_file)
+        try:
+            pf = _read_yaml(args.plan_file)
+        except Exception as exc:  # noqa: BLE001
+            log.error("加载计划文件失败（%s）：%s", args.plan_file, exc)
+            return 1
+        mock_plan = pf.get("mock_plan") or pf
+
+    try:
+        profile = Profile.load(profile_path)
+    except Exception as exc:  # noqa: BLE001
+        log.error("加载 profile 失败：%s", exc)
+        return 1
 
     executor = build_executor(cfg, mock_frames=mock_frames)
     ocr = build_ocr(cfg, executor)
@@ -167,7 +182,6 @@ def cmd_run(args, cfg: dict) -> int:
     confirm_fn = (lambda _p: "y") if cfg["risk"]["auto_confirm_all"] else None
     gate = build_gate(cfg, confirm_fn)
     planner = build_planner(cfg, llm, vision)
-    profile = Profile.load(profile_path)
     budget = dataclass_from(Budget, cfg["budget"])
     loop = dataclass_from(LoopConfig, cfg["loop"])
     run_dir = _make_run_dir(cfg, enabled=not args.no_run_dir)
@@ -192,7 +206,11 @@ def cmd_run(args, cfg: dict) -> int:
 def cmd_inspect(args, cfg: dict) -> int:
     mock_frames = None
     if args.example:
-        bundle = _read_yaml(args.example)
+        try:
+            bundle = _read_yaml(args.example)
+        except Exception as exc:  # noqa: BLE001
+            log.error("加载示例 bundle 失败（%s）：%s", args.example, exc)
+            return 1
         cfg["executor"]["kind"] = "mock"
         mock_frames = bundle.get("mock_frames")
     executor = build_executor(cfg, mock_frames=mock_frames)

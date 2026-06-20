@@ -21,6 +21,10 @@ def test_classify_text_input_is_at_least_medium():
     assert g.classify(Action(kind="text", text="hello"), "") == RiskLevel.MEDIUM
 
 
+def test_classify_forbidden_marker_returns_high():
+    assert _gate().classify(Action(kind="tap", text="确认支付"), "确认支付") == RiskLevel.HIGH
+
+
 def test_low_element_tap_auto_approved():
     assert _gate().approve(Action(kind="tap", index=0, text="设置"), "设置") is True
 

@@ -131,8 +131,11 @@ def find_element(
         if ratio > best_ratio:
             best_ratio = ratio
             best = (i, el)
-    if best is not None and best_ratio >= fuzzy_min:
-        return best
+    if best is not None:
+        # 短目标(≤2 字)用更严格阈值，避免「立即购买」误配「立即抢购」这类高相似异义词
+        threshold = max(0.85, fuzzy_min) if len(tgt) <= 2 else fuzzy_min
+        if best_ratio >= threshold:
+            return best
     return None
 
 

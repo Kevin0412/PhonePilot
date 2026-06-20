@@ -26,6 +26,14 @@ class RuntimeLlmStore:
         self._last_started: dict[str, float] = {}
         self._results: dict[str, tuple[float, Action]] = {}
 
+    _MAX_AGE_PRUNE = 120.0  # 超过此秒数的旧条目清理掉，防止长跑内存无界增长
+
+    def _prune_locked(self, now: float) -> None:
+        for k in [k for k, (ts, _) in self._results.items() if now - ts > self._MAX_AGE_PRUNE]:
+            self._results.pop(k, None)
+        for k in [k for k, ts in self._last_started.items() if now - ts > self._MAX_AGE_PRUNE]:
+            self._last_started.pop(k, None)
+
     def start(self, key: str, worker: Callable[[], Action]) -> bool:
         """尝试启动后台 worker。忙/节流则返回 False（请求被丢弃）。"""
         now = time.monotonic()
@@ -36,6 +44,9 @@ class RuntimeLlmStore:
                 return False
             self._active = key
             self._last_started[key] = now
+            # 启动新 worker 前清除该 key 的旧结果，避免 get() 在新结果就绪前返回陈旧值
+            self._results.pop(key, None)
+            self._prune_locked(now)
 
         def run() -> None:
             try:

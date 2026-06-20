@@ -27,6 +27,13 @@ def test_index_text_mismatch_raises():
         validate_action(Action(kind="tap", index=0, text="WLAN"), els)
 
 
+def test_substring_ambiguity_now_rejected():
+    # index 指向「删除」，但 text 是「删除全部」——子串匹配会放过，精确匹配应拒绝
+    els = [el("删除"), el("删除全部")]
+    with pytest.raises(SafetyError):
+        validate_action(Action(kind="tap", index=0, text="删除全部"), els)
+
+
 def test_blacklisted_target_raises():
     els = [el("确认支付")]
     with pytest.raises(SafetyError):

@@ -51,6 +51,8 @@ def action_from_dict(data: Any, *, default_reason: str = "") -> Action:
         return Action(kind="wait", reason="LLM 返回非对象")
 
     raw = str(data.get("action", "")).strip().lower().replace(" ", "_")
+    if not raw:
+        log.warning("LLM 动作缺少 action 字段，降级为 wait：%s", data)
     direction = str(data.get("direction", "")).strip().lower()
 
     # 从 "scroll_down" / "swipe_up" 这类动作名推断方向
@@ -76,7 +78,7 @@ def action_from_dict(data: Any, *, default_reason: str = "") -> Action:
     else:
         text = str(data.get("text") or "")
 
-    return Action(
+    action = Action(
         kind=kind,
         index=index,
         text=text,
@@ -88,6 +90,11 @@ def action_from_dict(data: Any, *, default_reason: str = "") -> Action:
         risk=RiskLevel.from_str(data.get("risk")),
         reason=str(data.get("reason") or default_reason),
     )
+    # tap/long_press 必须有 index 或 point，否则会在执行层因「缺少坐标」抛错——降级为 wait
+    if action.kind in ("tap", "long_press") and action.index is None and action.point is None:
+        log.warning("%s 动作缺少 index 与 point，降级为 wait：%s", action.kind, data)
+        return Action(kind="wait", reason="tap 缺少目标(index/point)")
+    return action
 
 
 class Planner:

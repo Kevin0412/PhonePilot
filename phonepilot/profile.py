@@ -59,5 +59,11 @@ class Profile:
     def load(cls, path: str | Path | None) -> "Profile":
         if not path:
             return cls()
-        data = json.loads(Path(path).read_text(encoding="utf-8"))
+        p = Path(path)
+        if not p.is_file():
+            raise FileNotFoundError(f"profile 文件不存在：{path}")
+        try:
+            data = json.loads(p.read_text(encoding="utf-8"))
+        except json.JSONDecodeError as exc:
+            raise ValueError(f"profile JSON 解析失败 {path}：{exc}") from exc
         return cls.from_dict(data)

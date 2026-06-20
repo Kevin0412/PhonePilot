@@ -30,10 +30,12 @@ def validate_action(
     target = elements[action.index]
 
     # index/text 一致性：防止 LLM 给的下标与文字对不上而点错位置。
+    # 用归一化后的精确相等（而非子串包含）——子串会放过「删除」vs「删除全部」这类歧义，
+    # 导致点到相邻的危险按钮。提示词已要求 LLM 回填元素原文，故精确匹配是安全且可行的。
     if action.text:
         a = normalize_text(action.text)
         b = normalize_text(target.text)
-        if a and b and a not in b and b not in a:
+        if a and b and a != b:
             raise SafetyError(
                 f"index/text 不一致：index={action.index} 实际={target.text!r} 期望={action.text!r}"
             )

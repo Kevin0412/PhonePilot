@@ -263,10 +263,9 @@ def run_agent(
             time.sleep(loop.poll_interval)
             continue
 
-        # 进入执行：清空等待计时
-        unknown_since = loading_since = None
-
         # 5) 解析执行参数 + 安全校验 + RiskGate
+        #    注意：等待计时器(unknown_since/loading_since)在「真正执行后」才清空，
+        #    否则安全校验失败 continue 会把卡顿计时不一致地重置（见下方执行成功处）。
         point: Optional[tuple[int, int]] = None
         target_text = ""
         decision = Decision(action, source)
@@ -312,7 +311,14 @@ def run_agent(
             run_dir, f"{_stamp()}_act", image, obs,
             {"source": source, "kind": action.kind, "target": target_text, "reason": action.reason},
         )
-        desc = execute_action(executor, action, point=point, image_wh=(obs.image_w, obs.image_h))
+        try:
+            desc = execute_action(executor, action, point=point, image_wh=(obs.image_w, obs.image_h))
+        except SafetyError as e:
+            log.warning("动作被执行层拒绝（缺少坐标/不可执行）：%s", e)
+            last_sig = obs.signature
+            time.sleep(loop.poll_interval)
+            continue
+        unknown_since = loading_since = None  # 已实际行动，清空等待计时
         log.info("▶ 执行[%s]：%s | 原因=%s", source, desc, action.reason)
         budget.tick()
 
@@ -331,6 +337,7 @@ def run_agent(
                 return manual_stop(executor, obs, f"点击后无变化：{target_text or action.kind}", run_dir=run_dir, image=image)
             log.warning("点击后无变化，重试 %d/%d", no_change, budget.max_no_change_retries)
             last_sig = ""
+            unknown_since = loading_since = None
             time.sleep(loop.after_click_delay)
             continue
 

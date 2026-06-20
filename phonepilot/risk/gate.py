@@ -46,7 +46,8 @@ class RiskGate:
     def classify(self, action: Action, target_text: str = "") -> RiskLevel:
         level = action.risk  # LLM 自评作为基线
         t = normalize_text(target_text)
-        if any(h in t for h in self._high_norm):
+        # 黑名单与高风险标志词都升级到 HIGH（黑名单本应在 loop 里直接拦，这里作纵深防御）
+        if any(f in t for f in self._forbidden_norm) or any(h in t for h in self._high_norm):
             level = RiskLevel.HIGH
         if action.kind == "text" and level.rank < RiskLevel.MEDIUM.rank:
             level = RiskLevel.MEDIUM  # 文本输入有副作用，至少 medium
@@ -65,7 +66,9 @@ class RiskGate:
 
     def approve(self, action: Action, desc: str, *, is_coordinate: bool = False) -> bool:
         """是否放行该动作。需确认时调用 confirm_fn；返回 False 表示拒绝（调用方应转人工接管）。"""
-        level = self.classify(action, "" if is_coordinate else desc)
+        # 始终用 desc 参与判级（即便坐标模式 desc 多为「坐标(x,y)」无标志词，也保留 action.risk 基线）；
+        # is_coordinate 只影响 _needs_confirm（坐标点击无法文本交叉校验，需额外确认）。
+        level = self.classify(action, desc)
         if not self._needs_confirm(action, level, is_coordinate=is_coordinate):
             return True
         prompt = (
