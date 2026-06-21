@@ -54,6 +54,7 @@ class AdbExecutor(Executor):
         self._base = [adb_path] + (["-s", serial] if serial else [])
         self._use_adbkb: Optional[bool] = None  # 懒检测 ADBKeyboard（中文输入）
         self._orig_ime: Optional[str] = None     # 切换前的输入法，close() 时恢复
+        self._orig_show_ime: Optional[str] = None  # show_ime_with_hard_keyboard 原值
 
     # ---- 底层 ---- #
     def _run(self, *args: str, timeout: Optional[float] = None) -> subprocess.CompletedProcess:
@@ -113,7 +114,12 @@ class AdbExecutor(Executor):
             self._shell("pm", "enable", _ADBKB_PKG, timeout=5)
             self._shell("ime", "enable", _ADBKB_IME, timeout=5)
             self._shell("ime", "set", _ADBKB_IME, timeout=5)
-            time.sleep(0.5)
+            # 外接物理键盘时系统默认不弹软输入法 → IME 不接管、广播无效。强制显示软 IME。
+            self._orig_show_ime = self._shell(
+                "settings", "get", "secure", "show_ime_with_hard_keyboard", timeout=5
+            ).strip()
+            self._shell("settings", "put", "secure", "show_ime_with_hard_keyboard", "1", timeout=5)
+            time.sleep(0.6)
 
     def prepare_input(self) -> None:
         # 在聚焦输入框之前先切到 ADBKeyboard，确保聚焦时可编程输入法已就绪（顺序很关键）。
@@ -180,4 +186,11 @@ class AdbExecutor(Executor):
                 self._shell("ime", "set", self._orig_ime, timeout=5)
             except Exception:  # pragma: no cover
                 pass
+        if self._orig_show_ime is not None:
+            restore = self._orig_show_ime if self._orig_show_ime in ("0", "1") else "0"
+            try:
+                self._shell("settings", "put", "secure", "show_ime_with_hard_keyboard", restore, timeout=5)
+            except Exception:  # pragma: no cover
+                pass
         self._orig_ime = None
+        self._orig_show_ime = None
