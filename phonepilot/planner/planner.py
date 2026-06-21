@@ -121,7 +121,8 @@ class Planner:
                 prompts.PLAN_SYSTEM_PROMPT,
                 user,
                 thinking=self.rich["thinking"],
-                max_tokens=max(640, int(self.rich["max_tokens"])),
+                # 规划是一次性调用，给足 token：推理模型(如 MiMo)的 reasoning_content 也吃额度
+                max_tokens=max(2048, int(self.rich["max_tokens"])),
                 temperature=0.0,
             )
         except Exception as exc:  # noqa: BLE001 - 统一转 PlanError

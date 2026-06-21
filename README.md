@@ -40,6 +40,18 @@ phonepilot run \
   --profile profiles/android_settings.json
 ```
 
+真连 LLM 验证规划（无需真机，把一句话变成结构化 Plan 并打印）：
+
+```bash
+phonepilot plan --task "打开微信给文件传输助手发：今晚加班" --llm openai      # MiMo (mimo-v2.5)
+phonepilot plan --task "卸载抖音这个App"                      --llm deepseek    # deepseek-v4-flash（高风险步骤会标 high）
+# 用 DeepSeek 的 Anthropic 兼容端点联调 Claude 代码路径：
+phonepilot plan --task "打开设置进入WLAN" --llm claude \
+  --llm-base-url https://api.deepseek.com/anthropic --llm-model deepseek-v4-flash --llm-env-key DEEPSEEK_API_KEY
+```
+
+LLM 三类可插拔：`deepseek`（原生）、`claude`（Anthropic Messages，可指向兼容端点）、`openai`（通用 OpenAI 兼容，`--llm-provider mimo|qwen|kimi|glm`）。密钥放 `.env`。
+
 接真机（USB 或 wifi-ADB 连好、`adb devices` 能看到）：
 
 ```bash

@@ -18,7 +18,7 @@ icons:
   template_dir: phonepilot/perception/assets/icons
 
 llm:
-  kind: mock            # deepseek | claude | mock
+  kind: mock            # deepseek | claude | openai | mock
   # 快速路径：仅编号文字、关思考、低 token —— 高频默认路径，求效率
   fast:
     thinking: false
@@ -30,14 +30,23 @@ llm:
     max_tokens: 512
     temperature: 0.0
   deepseek:
-    model: deepseek-chat
+    model: deepseek-v4-flash    # deepseek-v4-flash | deepseek-v4-pro（deepseek-chat/reasoner 将于 2026-07-24 弃用）
     base_url: https://api.deepseek.com
     timeout: 8.0
+    env_key: null               # 默认读 DEEPSEEK_API_KEY
   claude:
     model: claude-sonnet-4-5
-    base_url: https://api.anthropic.com
+    base_url: https://api.anthropic.com   # 联调可指向 https://api.deepseek.com/anthropic
     timeout: 30.0
     anthropic_version: "2023-06-01"
+    env_key: null               # 默认读 ANTHROPIC_API_KEY；用 DeepSeek 兼容端点时设 DEEPSEEK_API_KEY
+  openai:                        # 通用 OpenAI 兼容（MiMo/Qwen/Kimi/GLM 文本）
+    provider: mimo              # mimo | qwen | kimi | glm（base_url/model 留空用预置）
+    base_url: null              # mimo 预置: https://token-plan-cn.xiaomimimo.com/v1
+    model: null                 # mimo 预置: mimo-v2.5
+    env_key: null               # 默认按 provider 取（mimo->MIMO_API_KEY）
+    timeout: 30.0
+    json_mode: false
 
 vision:                 # OCR 处理不了时的视觉兜底（看截图给归一化坐标）
   enabled: false        # MVP 默认关

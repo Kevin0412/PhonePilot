@@ -17,13 +17,15 @@ class DeepSeekClient(LLMClient):
         self,
         *,
         api_key: Optional[str] = None,
-        model: str = "deepseek-chat",
+        model: str = "deepseek-v4-flash",
         base_url: str = "https://api.deepseek.com",
         timeout: float = 8.0,
+        env_key: Optional[str] = None,
     ) -> None:
-        self.api_key = api_key or os.environ.get("DEEPSEEK_API_KEY")
+        ek = env_key or "DEEPSEEK_API_KEY"
+        self.api_key = api_key or os.environ.get(ek)
         if not self.api_key:
-            raise RuntimeError("缺少 DEEPSEEK_API_KEY（放入 .env 或环境变量）")
+            raise RuntimeError(f"缺少 API key（环境变量 {ek}）")
         self.model = model
         self.base_url = base_url
         self.timeout = timeout

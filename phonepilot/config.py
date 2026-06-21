@@ -26,12 +26,22 @@ DEFAULTS: dict[str, Any] = {
         "kind": "mock",
         "fast": {"thinking": False, "max_tokens": 160, "temperature": 0.0},
         "rich": {"thinking": True, "max_tokens": 512, "temperature": 0.0},
-        "deepseek": {"model": "deepseek-chat", "base_url": "https://api.deepseek.com", "timeout": 8.0},
+        "deepseek": {"model": "deepseek-v4-flash", "base_url": "https://api.deepseek.com", "timeout": 8.0, "env_key": None},
         "claude": {
             "model": "claude-sonnet-4-5",
             "base_url": "https://api.anthropic.com",
             "timeout": 30.0,
             "anthropic_version": "2023-06-01",
+            "env_key": None,
+        },
+        # 通用 OpenAI 兼容（MiMo/Qwen/Kimi/GLM 文本）。base_url/model 留空则用 provider 预置。
+        "openai": {
+            "provider": "mimo",
+            "base_url": None,
+            "model": None,
+            "env_key": None,
+            "timeout": 30.0,
+            "json_mode": False,
         },
     },
     "vision": {

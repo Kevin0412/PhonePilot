@@ -86,14 +86,22 @@ def build_llm(cfg: dict, *, mock_plan: dict | None = None):
         from .planner.llm_deepseek import DeepSeekClient
 
         ds = cfg["llm"]["deepseek"]
-        return DeepSeekClient(model=ds["model"], base_url=ds["base_url"], timeout=ds["timeout"])
+        return DeepSeekClient(model=ds["model"], base_url=ds["base_url"], timeout=ds["timeout"], env_key=ds.get("env_key"))
     if kind == "claude":
         from .planner.llm_claude import ClaudeClient
 
         c = cfg["llm"]["claude"]
         return ClaudeClient(
             model=c["model"], base_url=c["base_url"], timeout=c["timeout"],
-            anthropic_version=c["anthropic_version"],
+            anthropic_version=c["anthropic_version"], env_key=c.get("env_key"),
+        )
+    if kind == "openai":
+        from .planner.llm_openai import OpenAICompatClient
+
+        o = cfg["llm"]["openai"]
+        return OpenAICompatClient(
+            provider=o.get("provider", "mimo"), base_url=o.get("base_url"), model=o.get("model"),
+            env_key=o.get("env_key"), timeout=o.get("timeout", 30.0), json_mode=o.get("json_mode", False),
         )
     raise ValueError(f"未知 LLM：{kind}")
 
@@ -174,6 +182,7 @@ def cmd_run(args, cfg: dict) -> int:
         log.error("加载 profile 失败：%s", exc)
         return 1
 
+    _apply_llm_overrides(cfg, args)
     executor = build_executor(cfg, mock_frames=mock_frames)
     ocr = build_ocr(cfg, executor)
     icons = build_icons(cfg)
@@ -201,6 +210,37 @@ def cmd_run(args, cfg: dict) -> int:
     if run_dir:
         log.info("运行产物：%s", run_dir)
     return rc
+
+
+def _apply_llm_overrides(cfg: dict, args) -> None:
+    """把 --llm-base-url/--llm-model/--llm-env-key/--llm-provider 写入当前 LLM 段。"""
+    kind = cfg["llm"]["kind"]
+    sect = cfg["llm"].setdefault(kind, {})
+    if getattr(args, "llm_base_url", None):
+        sect["base_url"] = args.llm_base_url
+    if getattr(args, "llm_model", None):
+        sect["model"] = args.llm_model
+    if getattr(args, "llm_env_key", None):
+        sect["env_key"] = args.llm_env_key
+    if getattr(args, "llm_provider", None) and kind == "openai":
+        sect["provider"] = args.llm_provider
+
+
+def cmd_plan(args, cfg: dict) -> int:
+    """只做规划：自然语言 -> 结构化 Plan，打印 JSON（验证真连 LLM 的规划路径，无需真机）。"""
+    if cfg["llm"]["kind"] == "mock":
+        log.error("plan 子命令需要真实 LLM：用 --llm openai|deepseek|claude")
+        return 1
+    _apply_llm_overrides(cfg, args)
+    try:
+        llm = build_llm(cfg)
+        planner = build_planner(cfg, llm, None)
+        plan = planner.make_plan(args.task)
+    except Exception as exc:  # noqa: BLE001
+        log.error("规划失败：%s", exc)
+        return 1
+    print(json.dumps(plan.to_dict(), ensure_ascii=False, indent=2))
+    return 0
 
 
 def cmd_inspect(args, cfg: dict) -> int:
@@ -255,6 +295,14 @@ def _read_yaml(path: str) -> dict:
     return yaml.safe_load(Path(path).read_text(encoding="utf-8")) or {}
 
 
+def _add_llm_args(p: argparse.ArgumentParser) -> None:
+    p.add_argument("--llm", choices=["mock", "deepseek", "claude", "openai"], help="覆盖 LLM 类型")
+    p.add_argument("--llm-provider", help="openai 兼容 provider 预置：mimo/qwen/kimi/glm")
+    p.add_argument("--llm-base-url", help="覆盖 LLM base_url")
+    p.add_argument("--llm-model", help="覆盖 LLM model")
+    p.add_argument("--llm-env-key", help="从该环境变量读取 API key（如用 DeepSeek 的 Anthropic 端点联调 claude）")
+
+
 def _add_common(p: argparse.ArgumentParser) -> None:
     p.add_argument("--config", help="配置文件路径（默认 ./config.yaml 若存在）")
     p.add_argument("--executor", choices=["mock", "adb"], help="覆盖执行器")
@@ -294,7 +342,7 @@ def build_parser() -> argparse.ArgumentParser:
     pr = sub.add_parser("run", help="执行一个自然语言任务")
     _add_common(pr)
     pr.add_argument("--task", help="自然语言任务描述")
-    pr.add_argument("--llm", choices=["mock", "deepseek", "claude"], help="覆盖 LLM")
+    _add_llm_args(pr)
     pr.add_argument("--plan-file", help="mock LLM 时的计划 YAML/JSON")
     pr.add_argument("--vision", dest="vision", action="store_true", default=None, help="启用视觉兜底")
     pr.add_argument("--no-vision", dest="vision", action="store_false", help="禁用视觉兜底")
@@ -303,6 +351,13 @@ def build_parser() -> argparse.ArgumentParser:
     pr.add_argument("--run-dir", help="运行产物目录")
     pr.add_argument("--no-run-dir", action="store_true", help="不落盘运行产物")
     pr.set_defaults(func=cmd_run)
+
+    pp = sub.add_parser("plan", help="只做规划：自然语言 -> 结构化 Plan（打印，验证真连 LLM）")
+    pp.add_argument("--task", required=True, help="自然语言任务描述")
+    pp.add_argument("--config", help="配置文件路径")
+    _add_llm_args(pp)
+    pp.add_argument("-v", "--verbose", action="store_true")
+    pp.set_defaults(func=cmd_plan)
 
     pi = sub.add_parser("inspect", help="只感知一帧并打印元素/签名，不执行")
     _add_common(pi)

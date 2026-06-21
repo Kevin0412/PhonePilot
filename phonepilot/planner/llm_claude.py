@@ -20,10 +20,14 @@ class ClaudeClient(LLMClient):
         base_url: str = "https://api.anthropic.com",
         timeout: float = 30.0,
         anthropic_version: str = "2023-06-01",
+        env_key: Optional[str] = None,
     ) -> None:
-        self.api_key = api_key or os.environ.get("ANTHROPIC_API_KEY")
+        # env_key 可指向其它 key（如用 DeepSeek 的 Anthropic 兼容端点 https://api.deepseek.com/anthropic
+        # 联调时，设 base_url 指向它、env_key=DEEPSEEK_API_KEY、model=deepseek-v4-flash）。
+        ek = env_key or "ANTHROPIC_API_KEY"
+        self.api_key = api_key or os.environ.get(ek)
         if not self.api_key:
-            raise RuntimeError("缺少 ANTHROPIC_API_KEY（放入 .env 或环境变量）")
+            raise RuntimeError(f"缺少 API key（环境变量 {ek}）")
         self.model = model
         self.base_url = base_url
         self.timeout = timeout
