@@ -76,9 +76,9 @@ def action_from_dict(data: Any, *, default_reason: str = "") -> Action:
     if kind == "text":
         text = str(data.get("input") or data.get("text") or "")
     elif kind == "launch":
-        text = str(data.get("package") or data.get("text") or "")
+        text = str(data.get("package") or data.get("text") or data.get("input") or "")
     elif kind == "intent":
-        text = str(data.get("intent") or data.get("text") or "")
+        text = str(data.get("intent") or data.get("text") or data.get("input") or "")
     else:
         text = str(data.get("text") or "")
 
