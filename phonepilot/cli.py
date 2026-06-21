@@ -293,9 +293,20 @@ def cmd_inspect(args, cfg: dict) -> int:
     executor = build_executor(cfg, mock_frames=mock_frames)
     ocr = build_ocr(cfg, executor)
     icons = build_icons(cfg)
-    _img, obs = observe(executor, ocr, icons)
+    ui_detect = build_ui_detect(cfg)
+
+    from .executor.mock import MockExecutor as _ME
+
+    perc = cfg.get("perception", {})
+    is_mock = isinstance(executor, _ME)
+    with_cv = bool(perc.get("cv", False)) and not is_mock
+    with_ui = bool(perc.get("ui", False)) and not is_mock
+
+    _img, obs = observe(executor, ocr, icons, ui_detect=ui_detect,
+                        with_cv=with_cv, with_ui=with_ui)
     print(f"前台：{obs.foreground or '(未知)'}")
-    print(f"屏幕：{obs.image_w}x{obs.image_h}  元素 {len(obs.elements)} 个")
+    det_tag = "✓" if ui_detect else "✗"
+    print(f"屏幕：{obs.image_w}x{obs.image_h}  元素 {len(obs.elements)} 个  UI检测={det_tag} CV={with_cv} 控件树={with_ui}")
     print("-" * 60)
     for i, el in enumerate(obs.elements):
         print(f"[{i:2d}] {el.kind:4s} {el.style:14s} {el.center} {el.text!r}")
