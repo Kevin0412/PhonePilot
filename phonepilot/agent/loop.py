@@ -640,7 +640,22 @@ def run_llm_agent(
                     desc = f"intent {action.text}"
                 log.info("▶ 执行：%s", desc)
             except Exception as e:  # noqa: BLE001
-                history.append(f"命令失败({e})")
+                hint = f"命令失败({action.text})：包名不存在。"
+                # 尝试用 pm list 搜正确包名提示 LLM
+                if action.kind == "launch":
+                    try:
+                        # 用最后一段的前4字符做模糊搜索（notes→note 能匹配 notepad）
+                        kw = action.text.split(".")[-1][:4].lower() if "." in action.text else action.text[:4].lower()
+                        out = executor._shell("pm", "list", "packages", timeout=8) if hasattr(executor, "_shell") else ""
+                        candidates = [l.replace("package:", "").strip() for l in out.splitlines()
+                                      if kw in l.lower()][:5]
+                        if candidates:
+                            hint += f" 可能的包名：{', '.join(candidates)}。"
+                        else:
+                            hint += " 建议 back 到桌面/应用抽屉找图标 tap 打开。"
+                    except Exception:  # noqa: BLE001
+                        pass
+                history.append(hint)
                 time.sleep(loop.poll_interval)
                 continue
             wait_for_change(executor, image, timeout=loop.transition_timeout, threshold=loop.transition_threshold)

@@ -196,7 +196,7 @@ class AdbExecutor(Executor):
                 continue
             if fg.split("/", 1)[0] == package or package in fg:
                 return  # 目标 app 已到前台
-        log.warning("launch %s 后未确认到前台（当前前台=%s），交由上层按屏幕应对", package, fg or "未知")
+        raise RuntimeError(f"launch {package} 后未到前台（当前={fg or '未知'}），可能包名错误")
 
     def _handle_twin_chooser(self) -> None:
         """华为「应用分身」会弹出主/分身选择器(HwChooserActivity，截图拍不到但控件树可见)。
