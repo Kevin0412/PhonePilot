@@ -39,6 +39,12 @@ def test_coordinate_tap_requires_confirmation():
     assert g.approve(Action(kind="tap", point=(0.5, 0.5)), "<坐标>", is_coordinate=True) is False
 
 
+def test_medium_auto_confirm_lets_typing_through_but_gates_send():
+    g = RiskGate(high_risk_markers=["发送"], auto_confirm_medium=True, confirm_fn=lambda _p: "n")
+    assert g.approve(Action(kind="text", text="hi"), "") is True          # 文本输入(medium)放行
+    assert g.approve(Action(kind="tap", text="发送"), "发送") is False     # 发送(high)仍需确认
+
+
 def test_auto_confirm_all_skips_everything():
     g = _gate(answer="n", auto_confirm_all=True)
     assert g.approve(Action(kind="tap", text="支付"), "支付") is True

@@ -13,14 +13,24 @@ from typing import Sequence
 from ..types import Observation, Plan, Step
 
 
-def format_fast(elements) -> str:
-    """仅编号 + 文字，跳过空文本。"""
+def format_fast(elements, image_w: int = 0, image_h: int = 0) -> str:
+    """编号 + 文字 + 归一化坐标，跳过空文本。
+
+    坐标 @(x,y)（左上 0,0、右下 1,1）让 LLM 能对屏幕空间建模、做空间消歧
+    （例如区分顶部搜索框里的「王信」与下方结果列表里的「王信」）。给了尺寸才带坐标。
+    """
+    w = max(1, image_w)
+    h = max(1, image_h)
     lines: list[str] = []
     for i, el in enumerate(elements):
         t = (el.text or "").strip()
         if not t:
             continue
-        lines.append(f"{i}: {t}")
+        if image_w and image_h:
+            cx, cy = el.center
+            lines.append(f"{i}: {t}  @({cx / w:.2f},{cy / h:.2f})")
+        else:
+            lines.append(f"{i}: {t}")
     return "\n".join(lines)
 
 
@@ -56,7 +66,11 @@ def format_task_state(plan: Plan, step: Step, step_idx: int) -> str:
 
 
 def build_user_fast(plan: Plan, step: Step, step_idx: int, obs: Observation) -> str:
-    return f"{format_task_state(plan, step, step_idx)}\n\n当前屏幕元素（编号: 文字）：\n{format_fast(obs.elements)}"
+    return (
+        f"{format_task_state(plan, step, step_idx)}\n\n"
+        f"屏幕尺寸：{obs.image_w}x{obs.image_h}；每个元素后 @(x,y) 为归一化位置（左上0,0 右下1,1）。\n"
+        f"当前屏幕元素（编号: 文字 @位置）：\n{format_fast(obs.elements, obs.image_w, obs.image_h)}"
+    )
 
 
 def build_user_rich(plan: Plan, step: Step, step_idx: int, obs: Observation) -> str:

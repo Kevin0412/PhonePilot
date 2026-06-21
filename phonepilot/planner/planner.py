@@ -116,22 +116,39 @@ class Planner:
         user = f"用户任务：{task}"
         if screen_hint:
             user += f"\n\n当前屏幕文字（供参考）：\n{screen_hint}"
-        try:
-            data = self.llm.complete_json(
-                prompts.PLAN_SYSTEM_PROMPT,
-                user,
-                thinking=self.rich["thinking"],
-                # 规划是一次性调用，给足 token：推理模型(如 MiMo)的 reasoning_content 也吃额度
-                max_tokens=max(2048, int(self.rich["max_tokens"])),
-                temperature=0.0,
-            )
-        except Exception as exc:  # noqa: BLE001 - 统一转 PlanError
-            raise PlanError(f"规划调用失败：{exc}") from exc
-        plan = Plan.from_dict(task, data)
-        if not plan.steps:
-            raise PlanError(f"规划结果无有效步骤：{data}")
-        log.info("规划完成：%d 步，整体风险=%s", len(plan.steps), plan.overall_risk.value)
-        return plan
+        last_err = "未知错误"
+        for attempt in range(3):  # 模型偶发空响应/解析失败，重试
+            try:
+                data = self.llm.complete_json(
+                    prompts.PLAN_SYSTEM_PROMPT,
+                    user,
+                    thinking=self.rich["thinking"],
+                    # 规划是一次性调用，给足 token：推理模型(如 MiMo)的 reasoning_content 也吃额度
+                    max_tokens=max(2048, int(self.rich["max_tokens"])),
+                    temperature=0.0,
+                )
+                plan = Plan.from_dict(task, data)
+                if plan.steps:
+                    log.info("规划完成：%d 步，整体风险=%s", len(plan.steps), plan.overall_risk.value)
+                    return plan
+                last_err = f"无有效步骤：{data}"
+            except Exception as exc:  # noqa: BLE001
+                last_err = str(exc)
+            log.warning("规划第 %d 次未成功（%s），重试", attempt + 1, last_err)
+        raise PlanError(f"规划失败：{last_err}")
+
+    # ---- 动态重规划：卡住/遇到未预料情况时，基于当前屏幕重新规划剩余步骤 ---- #
+    def replan(self, task: str, obs: Observation, *, reason: str = "") -> Plan:
+        from .context import format_fast
+
+        hint = (
+            f"（这是执行中途的重新规划）当前前台：{obs.foreground or '未知'}\n"
+            f"当前屏幕元素（编号: 文字 @归一化位置）：\n{format_fast(obs.elements, obs.image_w, obs.image_h)}\n"
+            f"遇到的情况：{reason}\n"
+            "请基于【当前屏幕实况】，规划从现在起完成任务的剩余步骤"
+            "（例如目标联系人不在会话列表，就先点搜索、输入名字、再进入聊天）。"
+        )
+        return self.make_plan(task, screen_hint=hint)
 
     # ---- 运行期文本决策 ---- #
     def decide(self, obs: Observation, plan: Plan, step: Step, step_idx: int, *, mode: str = "fast") -> Action:

@@ -218,6 +218,8 @@ class Step:
     target_markers: list[str] = field(default_factory=list)    # 本步应点击的候选文字
     package: str = ""           # 若本步是打开某 app，填包名 -> 命令启动，不点图标
     intent: str = ""            # 若本步可直达某系统页面，填 intent action -> 命令直达（最稳）
+    input_text: str = ""        # 若本步是输入文字，填要输入的内容（先聚焦 target，再用输入法打字）
+    verify: list[str] = field(default_factory=list)  # 执行本步动作前必须出现的文字（前置校验，全部命中才执行）
     risk: RiskLevel = RiskLevel.LOW
 
     def to_dict(self) -> dict:
@@ -227,6 +229,8 @@ class Step:
             "target_markers": list(self.target_markers),
             "package": self.package,
             "intent": self.intent,
+            "input_text": self.input_text,
+            "verify": list(self.verify),
             "risk": self.risk.value,
         }
 
@@ -238,6 +242,8 @@ class Step:
             target_markers=[str(s) for s in data.get("target_markers", []) if str(s).strip()],
             package=str(data.get("package", "")).strip(),
             intent=str(data.get("intent", "")).strip(),
+            input_text=str(data.get("input_text", "")),
+            verify=[str(s) for s in data.get("verify", []) if str(s).strip()],
             risk=RiskLevel.from_str(data.get("risk")),
         )
 

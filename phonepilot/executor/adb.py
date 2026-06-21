@@ -10,11 +10,15 @@ from __future__ import annotations
 import logging
 import re
 import subprocess
+import time
 from typing import Any, Optional
 
 from .base import Executor
 
 log = logging.getLogger(__name__)
+
+_ADBKB_PKG = "com.android.adbkeyboard"
+_ADBKB_IME = "com.android.adbkeyboard/.AdbIME"
 
 _FOCUS_RE = re.compile(r"(?:mCurrentFocus|mFocusedApp|mResumedActivity)[^\n]*?([A-Za-z0-9_.]+/[A-Za-z0-9_.$]+)")
 
@@ -48,6 +52,8 @@ class AdbExecutor(Executor):
         self.serial = serial
         self.timeout = timeout
         self._base = [adb_path] + (["-s", serial] if serial else [])
+        self._use_adbkb: Optional[bool] = None  # 懒检测 ADBKeyboard（中文输入）
+        self._orig_ime: Optional[str] = None     # 切换前的输入法，close() 时恢复
 
     # ---- 底层 ---- #
     def _run(self, *args: str, timeout: Optional[float] = None) -> subprocess.CompletedProcess:
@@ -89,10 +95,34 @@ class AdbExecutor(Executor):
             str(int(ms)), timeout=max(5.0, ms / 1000.0 + 3.0),
         )
 
+    def _has_adbkeyboard(self) -> bool:
+        if self._use_adbkb is None:
+            try:
+                out = self._shell("pm", "list", "packages", _ADBKB_PKG, timeout=8)
+                self._use_adbkb = _ADBKB_PKG in out
+            except Exception:  # pragma: no cover
+                self._use_adbkb = False
+        return bool(self._use_adbkb)
+
+    def _ensure_adbkb(self) -> None:
+        """切到 ADBKeyboard（记住原输入法，close() 时恢复）。"""
+        if self._orig_ime is None:
+            cur = self._shell("settings", "get", "secure", "default_input_method", timeout=5).strip()
+            self._orig_ime = cur or "__none__"
+            self._shell("ime", "enable", _ADBKB_IME, timeout=5)
+            self._shell("ime", "set", _ADBKB_IME, timeout=5)
+            time.sleep(0.5)
+
     def text(self, value: str) -> None:
         if not value:
             return
-        self._shell("input", "text", _escape_text(value), timeout=8)
+        # ADB 的 input text 只认 ASCII；中文用 ADBKeyboard 广播输入。
+        if self._has_adbkeyboard():
+            self._ensure_adbkb()
+            msg = value.replace("\\", "\\\\").replace("'", "'\\''")
+            self._run("shell", f"am broadcast -a ADB_INPUT_TEXT --es msg '{msg}'", timeout=8)
+        else:
+            self._shell("input", "text", _escape_text(value), timeout=8)
 
     def key(self, keycode: str) -> None:
         self._shell("input", "keyevent", _norm_keycode(keycode), timeout=5)
@@ -127,3 +157,12 @@ class AdbExecutor(Executor):
             self._shell("svc", "power", "stayon", "usb", timeout=5)
         except Exception:  # pragma: no cover
             pass
+
+    def close(self) -> None:
+        # 恢复用户原来的输入法（之前为中文输入切到了 ADBKeyboard）
+        if self._orig_ime and self._orig_ime != "__none__":
+            try:
+                self._shell("ime", "set", self._orig_ime, timeout=5)
+            except Exception:  # pragma: no cover
+                pass
+        self._orig_ime = None

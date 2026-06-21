@@ -18,6 +18,8 @@ def local_rule_decision(
     profile: Profile,
     *,
     allow_scroll: bool = True,
+    image_h: int = 0,
+    top_skip_ratio: float = 0.10,
 ) -> Action:
     # 1. 错误恢复：命中错误上下文时优先点击「重试/确定」等
     rec_ctx = contains(elements, profile.recovery_markers)
@@ -35,9 +37,10 @@ def local_rule_decision(
     if loading:
         return Action(kind="wait", reason=f"loading: {loading}")
 
-    # 3. 当前子目标的候选控件
+    # 3. 当前子目标的候选控件（跳过顶部状态栏/搜索框，避开同名回显误点）
     if step.target_markers:
-        hit = find_candidate(elements, step.target_markers, reject_markers=profile.forbidden_markers)
+        min_y = int(image_h * top_skip_ratio) if image_h else 0
+        hit = find_candidate(elements, step.target_markers, reject_markers=profile.forbidden_markers, min_y=min_y)
         if hit:
             idx, el, marker = hit
             return Action(

@@ -119,6 +119,7 @@ def build_gate(cfg: dict, confirm_fn=None) -> RiskGate:
     r = cfg["risk"]
     return RiskGate(
         auto_confirm_low=r["auto_confirm_low"],
+        auto_confirm_medium=r.get("auto_confirm_medium", False),
         auto_confirm_all=r["auto_confirm_all"],
         confirm_coord_taps=r["confirm_coord_taps"],
         high_risk_markers=r["high_risk_markers"],
@@ -202,11 +203,17 @@ def cmd_run(args, cfg: dict) -> int:
         log.error("规划失败：%s", exc)
         return 1
 
-    rc = run_agent(
-        plan, executor=executor, ocr=ocr, planner=planner, gate=gate, profile=profile,
-        budget=budget, loop=loop, icons=icons, vision_enabled=vision is not None,
-        run_dir=run_dir, dry_run=args.dry_run,
-    )
+    try:
+        rc = run_agent(
+            plan, executor=executor, ocr=ocr, planner=planner, gate=gate, profile=profile,
+            budget=budget, loop=loop, icons=icons, vision_enabled=vision is not None,
+            run_dir=run_dir, dry_run=args.dry_run,
+        )
+    finally:
+        try:
+            executor.close()  # 恢复输入法等
+        except Exception:  # noqa: BLE001
+            pass
     if run_dir:
         log.info("运行产物：%s", run_dir)
     return rc
@@ -328,6 +335,8 @@ def _overrides_from(args) -> dict:
         o.setdefault("llm", {})["kind"] = args.llm
     if getattr(args, "vision", None) is not None:
         o.setdefault("vision", {})["enabled"] = args.vision
+    if getattr(args, "auto_confirm_medium", False):
+        o.setdefault("risk", {})["auto_confirm_medium"] = True
     if getattr(args, "auto_confirm_all", False):
         o.setdefault("risk", {})["auto_confirm_all"] = True
     if getattr(args, "run_dir", None):
@@ -347,6 +356,7 @@ def build_parser() -> argparse.ArgumentParser:
     pr.add_argument("--vision", dest="vision", action="store_true", default=None, help="启用视觉兜底")
     pr.add_argument("--no-vision", dest="vision", action="store_false", help="禁用视觉兜底")
     pr.add_argument("--dry-run", action="store_true", help="只预览当前屏幕的下一步决策，不执行（接真机前自检）")
+    pr.add_argument("--auto-confirm-medium", action="store_true", help="自动放行中风险(如文本输入)；高风险(如发送)仍需确认")
     pr.add_argument("--auto-confirm-all", action="store_true", help="跳过所有人工确认（谨慎）")
     pr.add_argument("--run-dir", help="运行产物目录")
     pr.add_argument("--no-run-dir", action="store_true", help="不落盘运行产物")

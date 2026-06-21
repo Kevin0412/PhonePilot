@@ -14,7 +14,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Optional
 
-from ..perception.signature import contains
+from ..perception.signature import contains, find_candidate
 from ..profile import Profile
 from ..types import Action, Decision, Observation, Plan
 from .budget import Budget
@@ -145,9 +145,32 @@ def run_agent(
     final_wait_since: Optional[float] = None
     step_entered_sig: Optional[str] = None   # 进入当前步时的页面签名（用于「确实导航过」判定）
     launched_step_idx = -1                    # 已用命令启动过 app 的步序号（避免重复启动）
+    typed_step_idx = -1                       # 已打字的步序号（避免重复输入）
+    replans = 0                               # 已重规划次数
 
     def now() -> float:
         return time.monotonic()
+
+    def try_replan(observation: Observation, reason: str) -> bool:
+        """卡住/遇未预料情况时，基于当前屏幕重新规划剩余步骤。成功返回 True（调用方 continue）。"""
+        nonlocal plan, step_idx, step_entered_sig, launched_step_idx, typed_step_idx
+        nonlocal last_sig, stuck_frames, unknown_since, loading_since, final_wait_since, replans
+        if replans >= budget.max_replans:
+            return False
+        replans += 1
+        log.info("↻ 第 %d 次重新规划（%s）", replans, reason)
+        try:
+            plan = planner.replan(plan.task, observation, reason=reason)
+        except Exception as e:  # noqa: BLE001
+            log.warning("重规划失败：%s", e)
+            return False
+        step_idx = 0
+        step_entered_sig = None
+        launched_step_idx = typed_step_idx = -1
+        last_sig = ""
+        stuck_frames = 0
+        unknown_since = loading_since = final_wait_since = None
+        return True
 
     def escalate(obs: Observation, image: Any, ocr_blind: bool):
         """卡住时按 fast→rich→vision 升级，返回 (Action, source) 或 None。"""
@@ -199,7 +222,8 @@ def run_agent(
             # 命令驱动的步骤用「导航/前台」判完成，比文字标志可靠（文字跨 ROM 易变：可用网络 vs 可用WLAN）
             pkg_open = bool(cur.package) and cur.package in (obs.foreground or "")
             intent_reached = bool(cur.intent) and launched_step_idx == step_idx and navigated
-            done_here = pkg_open or intent_reached or (
+            typed_done = bool(cur.input_text) and typed_step_idx == step_idx
+            done_here = pkg_open or intent_reached or typed_done or (
                 bool(cur.success_markers)
                 and contains(obs.elements, cur.success_markers)
                 and (navigated or not cur.target_markers)
@@ -220,12 +244,25 @@ def run_agent(
                 return DONE
             final_wait_since = final_wait_since or now()
             if now() - final_wait_since >= budget.unknown_stop_seconds:
+                if try_replan(obs, "步骤走完但任务似乎未达成"):
+                    continue
                 return manual_stop(executor, obs, "所有子目标完成但最终标志未出现", run_dir=run_dir, image=image)
             last_sig = obs.signature
             time.sleep(loop.poll_interval)
             continue
 
         step = plan.steps[step_idx]
+
+        # 2.4) 前置校验：执行本步动作前，要求 verify 文字全部出现（如发送前确认在「王信」的聊天里）。
+        #      操作不可靠，校验不过就别动手——优先重规划自我纠正，无预算则交人工，绝不在错误界面执行(尤其高风险)。
+        if step.verify and not all(contains(obs.elements, [m]) for m in step.verify):
+            missing = [m for m in step.verify if not contains(obs.elements, [m])]
+            if try_replan(obs, f"前置校验失败：当前界面缺少 {missing}（步骤：{step.goal}）"):
+                continue
+            return manual_stop(
+                executor, obs, f"前置校验失败，当前界面不符预期（需 {step.verify}），停止避免误操作",
+                run_dir=run_dir, image=image,
+            )
 
         # 2.5) 能用命令就别点：本步若给了 intent/包名，直接命令直达/启动，不点图标（更稳）
         if launched_step_idx != step_idx and (step.intent or step.package):
@@ -247,8 +284,33 @@ def run_agent(
             except Exception as e:  # noqa: BLE001 - 命令失败回退到点击
                 log.warning("命令打开失败（%s），回退点击：%s", step.intent or step.package, e)
 
+        # 2.6) 输入文字步骤：先聚焦输入框（若给了 target_markers），再用输入法打字（中文走 ADBKeyboard）
+        if step.input_text and typed_step_idx != step_idx:
+            if dry_run:
+                log.info("[dry-run] 下一步：输入文字 %r（不执行）", step.input_text)
+                return DONE
+            if not gate.approve(Action(kind="text", text=step.input_text), step.input_text):
+                return manual_stop(executor, obs, "文本输入被拒绝", run_dir=run_dir, image=image)
+            if step.target_markers:
+                hit = find_candidate(obs.elements, step.target_markers, reject_markers=profile.forbidden_markers)
+                if hit:
+                    executor.tap(*hit[1].center)  # 聚焦输入框
+                    time.sleep(0.4)
+            try:
+                executor.text(step.input_text)
+                log.info("⌨ 输入文字：%r", step.input_text)
+            except Exception as e:  # noqa: BLE001
+                log.warning("输入失败：%s", e)
+            typed_step_idx = step_idx
+            budget.tick()
+            last_sig = ""
+            time.sleep(loop.after_click_delay)
+            continue
+
         # 3) 本地规则决策
-        action = local_rule_decision(obs.elements, step, profile, allow_scroll=budget.scroll_ok())
+        action = local_rule_decision(
+            obs.elements, step, profile, allow_scroll=budget.scroll_ok(), image_h=obs.image_h
+        )
         source = "local"
         is_loading = action.reason.startswith("loading")
 
@@ -290,6 +352,8 @@ def run_agent(
                 if obs.signature == last_sig:
                     unknown_since = unknown_since or now()
                     if now() - unknown_since >= budget.unknown_stop_seconds:
+                        if try_replan(obs, f"在「{step.goal}」卡住（未知页面）"):
+                            continue
                         return manual_stop(executor, obs, "未知页面等待超时", run_dir=run_dir, image=image)
                 else:
                     unknown_since = None
@@ -368,6 +432,9 @@ def run_agent(
         if changed is None:
             no_change += 1
             if no_change > budget.max_no_change_retries:
+                if try_replan(obs, f"点击「{target_text or action.kind}」后无变化"):
+                    no_change = 0
+                    continue
                 return manual_stop(executor, obs, f"点击后无变化：{target_text or action.kind}", run_dir=run_dir, image=image)
             log.warning("点击后无变化，重试 %d/%d", no_change, budget.max_no_change_retries)
             last_sig = ""

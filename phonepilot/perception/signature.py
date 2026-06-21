@@ -96,27 +96,32 @@ def find_element(
     *,
     reject_markers: Iterable[str] = (),
     fuzzy_min: float = 0.62,
+    min_y: int = 0,
 ) -> Optional[tuple[int, ScreenElement]]:
     """在元素中定位 ``target``：精确 → 包含（双向）→ 模糊（SequenceMatcher）。
 
     返回 ``(index, element)`` 或 None。``reject_markers`` 命中者跳过（如「预填抢票信息」）。
+    ``min_y``：跳过中心 y 小于该像素值的元素（用于避开顶部状态栏/搜索框的同名回显）。
     """
     tgt = normalize_text(target)
     if not tgt:
         return None
     rejects = [normalize_text(r) for r in reject_markers]
 
+    def skip(el: ScreenElement, t: str) -> bool:
+        return not t or _rejected(t, rejects) or (min_y and el.center[1] < min_y)
+
     # pass 1: 精确
     for i, el in enumerate(elements):
         t = normalize_text(el.text)
-        if not t or _rejected(t, rejects):
+        if skip(el, t):
             continue
         if t == tgt:
             return (i, el)
     # pass 2: 包含（任一方向）
     for i, el in enumerate(elements):
         t = normalize_text(el.text)
-        if not t or _rejected(t, rejects):
+        if skip(el, t):
             continue
         if tgt in t or t in tgt:
             return (i, el)
@@ -125,7 +130,7 @@ def find_element(
     best: Optional[tuple[int, ScreenElement]] = None
     for i, el in enumerate(elements):
         t = normalize_text(el.text)
-        if not t or _rejected(t, rejects):
+        if skip(el, t):
             continue
         ratio = SequenceMatcher(None, tgt, t).ratio()
         if ratio > best_ratio:
@@ -145,10 +150,11 @@ def find_candidate(
     *,
     reject_markers: Iterable[str] = (),
     fuzzy_min: float = 0.62,
+    min_y: int = 0,
 ) -> Optional[tuple[int, ScreenElement, str]]:
     """按 ``markers`` 顺序找第一个命中的元素，返回 ``(index, element, 命中的marker)``。"""
     for marker in markers or ():
-        hit = find_element(elements, marker, reject_markers=reject_markers, fuzzy_min=fuzzy_min)
+        hit = find_element(elements, marker, reject_markers=reject_markers, fuzzy_min=fuzzy_min, min_y=min_y)
         if hit is not None:
             return (hit[0], hit[1], marker)
     return None

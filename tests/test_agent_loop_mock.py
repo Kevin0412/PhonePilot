@@ -94,6 +94,57 @@ def test_intent_step_completes_by_navigation_not_text():
     assert ex.actions[0]["action"] == "android.settings.WIFI_SETTINGS"
 
 
+def test_input_text_step_types_via_executor():
+    frames = [
+        MockFrame([el("发消息")], "chat"),
+        MockFrame([el("已输入")], "chat"),
+    ]
+    plan = {
+        "steps": [{"goal": "输入消息", "target_markers": ["发消息"], "input_text": "测试消息"}],
+        "final_success_markers": [],
+    }
+    rc, ex = _run(frames, plan, gate=RiskGate(auto_confirm_medium=True))
+    texts = [a for a in ex.actions if a["kind"] == "text"]
+    assert rc == DONE
+    assert texts and texts[0]["value"] == "测试消息"
+
+
+def test_replan_when_stuck_then_bounded_handover():
+    # 目标永远找不到 -> 卡住 -> 重规划(有上限) -> 最终交人工
+    frames = [MockFrame([el("空白页")], "x")]
+    plan = {"steps": [{"goal": "找不存在的东西", "target_markers": ["不存在"]}], "final_success_markers": ["不存在"]}
+    budget = Budget(max_scrolls=0, max_replans=2, unknown_stop_seconds=0.0)
+    rc, _ex = _run(frames, plan, budget=budget)
+    assert rc == HANDOVER
+
+
+def test_verify_blocks_action_on_wrong_contact():
+    # 在「沈俊」聊天里，但本步 verify=["王信"] -> 校验失败 -> 不执行发送 -> 交人工（防误发）
+    frames = [MockFrame([el("沈俊"), el("发送"), el("测试消息")], "chat")]
+    plan = {
+        "steps": [{"goal": "发送", "target_markers": ["发送"], "verify": ["王信"], "risk": "high"}],
+        "final_success_markers": [],
+    }
+    gate = RiskGate(high_risk_markers=["发送"], confirm_fn=lambda _p: "y")
+    rc, ex = _run(frames, plan, gate=gate, budget=Budget(max_replans=0))
+    assert rc == HANDOVER
+    assert not any(a["kind"] == "tap" for a in ex.actions)  # 未点击发送
+
+
+def test_verify_passes_then_acts():
+    frames = [
+        MockFrame([el("王信"), el("发送")], "chat"),
+        MockFrame([el("王信"), el("已发送消息")], "chat"),
+    ]
+    plan = {
+        "steps": [{"goal": "发送", "target_markers": ["发送"], "verify": ["王信"], "success_markers": ["已发送消息"]}],
+        "final_success_markers": [],
+    }
+    rc, ex = _run(frames, plan)
+    assert rc == DONE
+    assert any(a["kind"] == "tap" for a in ex.actions)  # 校验通过，执行了点击
+
+
 def test_hard_stop_marker_hands_over():
     frames = [
         MockFrame([el("设置")], "launcher"),

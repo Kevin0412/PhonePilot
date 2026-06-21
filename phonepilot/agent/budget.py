@@ -18,6 +18,7 @@ class Budget:
     max_vision_calls: int = 4
     max_no_change_retries: int = 2
     max_scrolls: int = 6
+    max_replans: int = 3        # 卡住时基于当前屏幕重新规划的最大次数
     unknown_stop_seconds: float = 8.0
     loading_stop_seconds: float = 45.0
     total_timeout_s: float = 600.0

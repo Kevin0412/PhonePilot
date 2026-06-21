@@ -24,6 +24,7 @@ class RiskGate:
         self,
         *,
         auto_confirm_low: bool = True,
+        auto_confirm_medium: bool = False,
         auto_confirm_all: bool = False,
         confirm_coord_taps: bool = True,
         high_risk_markers: Iterable[str] = (),
@@ -31,6 +32,7 @@ class RiskGate:
         confirm_fn: Optional[Callable[[str], str]] = None,
     ) -> None:
         self.auto_confirm_low = auto_confirm_low
+        self.auto_confirm_medium = auto_confirm_medium
         self.auto_confirm_all = auto_confirm_all
         self.confirm_coord_taps = confirm_coord_taps
         self.high_risk_markers = tuple(high_risk_markers)
@@ -56,8 +58,10 @@ class RiskGate:
     def _needs_confirm(self, action: Action, level: RiskLevel, *, is_coordinate: bool) -> bool:
         if self.auto_confirm_all:
             return False
-        if level == RiskLevel.HIGH or level == RiskLevel.MEDIUM:
+        if level == RiskLevel.HIGH:
             return True
+        if level == RiskLevel.MEDIUM:
+            return not self.auto_confirm_medium  # 文本输入等中风险：可配置自动放行（送出仍属 HIGH，照样确认）
         # 坐标/视觉点击无文本交叉校验，属不可验证动作，默认需确认
         if is_coordinate and self.confirm_coord_taps and action.kind in {"tap", "long_press"}:
             return True

@@ -27,22 +27,36 @@ PLAN_SYSTEM_PROMPT = """你是手机自动化 agent 的任务规划器，负责�
    - package（可选）：若该步是「打开某个 app」，填包名——框架用命令启动，不点图标。
      常见：微信 com.tencent.mm，QQ com.tencent.mobileqq，哔哩哔哩 tv.danmaku.bili，
      支付宝 com.eg.android.AlipayGphone，淘宝 com.taobao.taobao，抖音 com.ss.android.ugc.aweme。不确定就留空。
+   - input_text（可选）：若该步是「输入文字」，填要输入的内容；框架会先点 target_markers 指定的输入框聚焦再打字。
+   - verify（可选但重要）：执行本步动作前必须出现在屏幕上的文字（前置校验，全部命中才执行）。
+     自动操作不可靠，可能进错页面/点错联系人，所以涉及输入/发送给特定对象的步骤，verify 要带上对方标识
+     （如收件人姓名），确保「确实在对的人/对的页面」才动手；校验不过框架会重规划或停止，绝不误发。
    - risk：该步风险等级 low/medium/high；涉及支付、删除、发送、授权、转账、卸载等填 high。
 3. final_success_markers：整个任务完成后应出现的文字。
 4. overall_risk：整体风险等级。
 
-原则：能用命令直达就别逐级点击——优先 intent，其次 package；二者都给完成标志用页面内部内容。
+拆步要细、可多步：把「找人/搜索/输入/点击/发送」拆成各自独立的一步。例如「给王信发消息」常见为：
+  ① 打开 app(package) ② 点搜索(target_markers=["搜索"]) ③ 输入名字(target_markers=["搜索"], input_text="王信")
+  ④ 进入对方聊天(target_markers=["王信"]) ⑤ 输入消息(target_markers=["发消息","输入"], input_text="消息内容", verify=["王信"])
+  ⑥ 发送(target_markers=["发送"], verify=["王信"], risk=high)
+不必一次规划到完美：执行中若遇到未预料的界面，框架会基于当时屏幕重新规划，所以按你当前的合理预期拆即可。
+
+原则：能用命令直达就别逐级点击——优先 intent，其次 package；输入文字用 input_text；高风险/发给特定对象的步骤务必带 verify。
 
 只输出一个 JSON 对象，不要任何解释或多余文字：
-{"goal":"...","steps":[{"goal":"...","success_markers":["..."],"target_markers":["..."],"intent":"","package":"","risk":"low"}],"final_success_markers":["..."],"overall_risk":"low"}
+{"goal":"...","steps":[{"goal":"...","success_markers":["..."],"target_markers":["..."],"intent":"","package":"","input_text":"","verify":[],"risk":"low"}],"final_success_markers":["..."],"overall_risk":"low"}
 """
 
 # 含独有短语「单步动作」——用于 Mock 路由识别。
 DECIDE_SYSTEM_PROMPT = """你是手机自动化 agent 的页面决策器，根据当前屏幕决定下一个【单步动作】。
 输入包含：当前子目标、应点击的候选文字、以及当前屏幕的元素列表（编号 + 文字，可能含坐标与图标）。
 
+每个元素后的 @(x,y) 是其在屏幕上的归一化位置（左上 0,0、右下 1,1），用它对屏幕空间建模、做空间消歧。
+
 决策规则：
 1. 若候选控件就在屏幕上，返回点击它（action=tap，index 填该元素编号，text 填其原文）。
+   注意空间消歧：同名文字可能出现多处（如顶部搜索框的「王信」@y≈0.08 vs 下方结果列表的「王信」@y≈0.2），
+   要根据当前子目标选对的那个——找联系人要点结果列表里的、靠下的，而不是顶部输入框里的回显。
 2. 若当前子目标的控件不在屏幕上，可能在下方，返回向下滚动寻找（action=scroll，direction=down）。
 3. 页面在加载/排队（出现「加载中」「请稍候」等），返回等待（action=wait）。
 4. 出现验证码、风控、支付收银台、危险确认等需要人来处理的页面，返回停止（action=stop）。

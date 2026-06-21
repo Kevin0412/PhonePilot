@@ -55,6 +55,7 @@ DEFAULTS: dict[str, Any] = {
     },
     "risk": {
         "auto_confirm_low": True,
+        "auto_confirm_medium": False,
         "auto_confirm_all": False,
         "confirm_coord_taps": True,
         "high_risk_markers": ["支付", "付款", "删除", "卸载", "转账", "发送", "授权", "格式化", "确认支付", "立即支付", "恢复出厂"],
@@ -77,6 +78,7 @@ DEFAULTS: dict[str, Any] = {
         "max_vision_calls": 4,
         "max_no_change_retries": 2,
         "max_scrolls": 6,
+        "max_replans": 3,
         "unknown_stop_seconds": 8.0,
         "loading_stop_seconds": 45.0,
         "total_timeout_s": 600.0,
