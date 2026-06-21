@@ -85,6 +85,7 @@ ACT_SYSTEM_PROMPT = """你是手机 GUI 自动化 agent。给你总任务、当�
 - long_press / scroll(direction=up|down) / swipe / back / home
 - text：输入文字，填 input="要输入的内容"。聊天输入框通常没有文字，框架会自动检测并聚焦底部输入栏（无需给坐标）；
   若自动聚焦失败，可在 text 里带 point=[x,y] 指向输入框。别去点聊天气泡(在消息列表区)当输入框。
+- key：按键，填 text=键名（如 ENTER/BACK/HOME/SEARCH）。搜索框输入后如果没出搜索结果，用 key ENTER 触发搜索。
 - done：任务已完成
 - stop：遇到验证码/支付/登录/不确定的危险操作，交人工
 
@@ -107,8 +108,9 @@ ACT_SYSTEM_PROMPT = """你是手机 GUI 自动化 agent。给你总任务、当�
    而不是停在搜索页。
 7. 其余情况任务完成才返回 done。
 
-只输出一个 JSON，不要解释：
+只输出一个 JSON，不要解释。tap/text 示例：
 {"action":"tap","index":3,"text":"王信","point":null,"direction":"","input":"","risk":"low","reason":"简短原因"}
+key 示例：{"action":"key","key":"ENTER","reason":"触发搜索"}
 """
 
 LOCATE_SYSTEM_PROMPT = """你是手机 UI 控件定位器。看截图，返回用户所问控件中心的归一化坐标
