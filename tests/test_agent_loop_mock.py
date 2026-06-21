@@ -1,7 +1,8 @@
 """端到端：MockExecutor + MockLLM 跑通整条 感知→决策→执行 闭环。"""
 
 from phonepilot.agent.budget import Budget
-from phonepilot.agent.loop import DONE, HANDOVER, LoopConfig, run_agent
+from phonepilot.agent.loop import DONE, HANDOVER, LoopConfig, _find_input_element, run_agent
+from phonepilot.types import Observation
 from phonepilot.executor.mock import MockExecutor, MockFrame, MockOcrEngine
 from phonepilot.planner.llm_mock import MockLLMClient
 from phonepilot.planner.planner import Planner
@@ -229,3 +230,34 @@ def test_high_risk_confirmed_executes():
     rc, ex = _run(frames, plan, gate=gate)
     assert rc == DONE
     assert len([a for a in ex.actions if a["kind"] == "tap"]) == 1
+
+
+def test_find_input_element_picks_bottom_wide_box():
+    """_find_input_element 应找到底部宽矮的 ui/edit 元素作为输入框。"""
+    obs = Observation(
+        image_w=1080, image_h=2400,
+        elements=[
+            el("标题", center=(540, 100)),
+            el("[输入框]", center=(500, 2300), kind="ui"),  # 底部宽矮框
+        ],
+        signature="", foreground="",
+    )
+    # 需要让 bounds 足够宽
+    from phonepilot.types import ScreenElement
+    wide_input = ScreenElement(text="[输入框]", score=0.5,
+                               box=((100, 2250), (900, 2250), (900, 2350), (100, 2350)),
+                               style="normal", kind="ui")
+    obs2 = Observation(image_w=1080, image_h=2400,
+                       elements=[el("标题", center=(540, 100)), wide_input],
+                       signature="", foreground="")
+    xy = _find_input_element(obs2)
+    assert xy is not None
+    assert xy[1] > 2000  # y 在底部
+
+
+def test_find_input_element_returns_none_without_bottom_box():
+    """没有底部宽矮框时返回 None。"""
+    obs = Observation(image_w=1080, image_h=2400,
+                      elements=[el("标题", center=(540, 100))],
+                      signature="", foreground="")
+    assert _find_input_element(obs) is None
