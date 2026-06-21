@@ -196,20 +196,28 @@ def cmd_run(args, cfg: dict) -> int:
     loop = dataclass_from(LoopConfig, cfg["loop"])
     run_dir = _make_run_dir(cfg, enabled=not args.no_run_dir)
 
-    log.info("任务：%s（模式=%s）", task, args.mode)
+    from .executor.mock import MockExecutor
+
+    perc = cfg.get("perception", {})
+    is_mock = isinstance(executor, MockExecutor)
+    with_cv = bool(perc.get("cv", False)) and not is_mock   # CV/控件树需真机像素，mock 跳过
+    with_ui = bool(perc.get("ui", False)) and not is_mock
+
+    log.info("任务：%s（模式=%s，CV画框=%s 控件树=%s）", task, args.mode, with_cv, with_ui)
     rc = 1
     try:
         if args.mode == "llm":
             rc = run_llm_agent(
                 task, executor=executor, ocr=ocr, planner=planner, gate=gate, profile=profile,
-                budget=budget, loop=loop, icons=icons, run_dir=run_dir, dry_run=args.dry_run,
+                budget=budget, loop=loop, icons=icons, with_cv=with_cv, with_ui=with_ui,
+                run_dir=run_dir, dry_run=args.dry_run,
             )
         else:
             plan = planner.make_plan(task)
             rc = run_agent(
                 plan, executor=executor, ocr=ocr, planner=planner, gate=gate, profile=profile,
                 budget=budget, loop=loop, icons=icons, vision_enabled=vision is not None,
-                run_dir=run_dir, dry_run=args.dry_run,
+                with_cv=with_cv, with_ui=with_ui, run_dir=run_dir, dry_run=args.dry_run,
             )
     except Exception as exc:  # noqa: BLE001
         log.error("执行失败：%s", exc)

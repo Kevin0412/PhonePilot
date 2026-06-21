@@ -161,6 +161,8 @@ def run_agent(
     loop: LoopConfig,
     icons=None,
     vision_enabled: bool = False,
+    with_cv: bool = False,
+    with_ui: bool = False,
     run_dir: Optional[Path] = None,
     dry_run: bool = False,
 ) -> int:
@@ -235,7 +237,7 @@ def run_agent(
         if exc:
             return manual_stop(executor, None, f"预算耗尽：{exc}", run_dir=run_dir)
 
-        image, obs = observe(executor, ocr, icons, with_foreground=True)
+        image, obs = observe(executor, ocr, icons, with_foreground=True, with_cv=with_cv, with_ui=with_ui)
 
         # 1) 硬停止：支付/验证码/成功等页面 -> 交人工
         m = contains(obs.elements, profile.hard_stop_markers)
@@ -489,6 +491,8 @@ def run_llm_agent(
     budget: Budget,
     loop: LoopConfig,
     icons=None,
+    with_cv: bool = False,
+    with_ui: bool = False,
     run_dir: Optional[Path] = None,
     dry_run: bool = False,
     mode: str = "fast",
@@ -506,7 +510,7 @@ def run_llm_agent(
         if exc:
             return manual_stop(executor, None, f"预算耗尽：{exc}", run_dir=run_dir)
 
-        image, obs = observe(executor, ocr, icons, with_foreground=True)
+        image, obs = observe(executor, ocr, icons, with_foreground=True, with_cv=with_cv, with_ui=with_ui)
         m = contains(obs.elements, profile.hard_stop_markers)
         if m:
             return manual_stop(executor, obs, f"命中硬停止标志：{m}", run_dir=run_dir, image=image)
