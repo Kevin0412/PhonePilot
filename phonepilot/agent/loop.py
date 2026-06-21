@@ -596,6 +596,18 @@ def run_llm_agent(
             log.info("交替循环警告：%s 窗口=%s", cycle, _action_window[-6:])
             _is_loop = len(_action_window) >= 8 and len(set(_action_window)) <= 2
         if _is_loop:
+            # 尝试模型升级自救：flash 卡了 → 临时切 pro 重新决策一次
+            llm = getattr(planner, "llm", None)
+            cur_model = getattr(llm, "model", "") if llm else ""
+            if "flash" in cur_model and not getattr(llm, "_escalated", False):
+                pro_model = cur_model.replace("flash", "pro")
+                log.info("动作循环 → 临时升级 %s → %s 重试", cur_model, pro_model)
+                llm.model = pro_model
+                llm._escalated = True  # type: ignore[attr-defined]
+                history.append(f"⚠ 框架已临时升级到更强模型({pro_model})，请重新审视屏幕并换策略")
+                _action_window.clear()
+                _repeat_count = 0
+                continue  # 重新 observe + act（用 pro 模型）
             return manual_stop(executor, obs, f"动作循环无法脱困：{_action_window[-4:]}",
                                run_dir=run_dir, image=image)
 
