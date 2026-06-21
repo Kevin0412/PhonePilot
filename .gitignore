@@ -28,3 +28,4 @@ captures/
 .claude/
 
 # 注意：examples/mock_frames/ 与 phonepilot/perception/assets/ 为测试/运行所需，不忽略。
+models/
