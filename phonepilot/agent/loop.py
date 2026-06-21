@@ -100,17 +100,32 @@ def _stamp() -> str:
     return _dt.datetime.now().strftime("%H%M%S_%f")[:-3]
 
 
+def _find_input_element(obs: Observation) -> Optional[tuple[int, int]]:
+    """从 observe 已融合的元素里找底部输入框：kind=ui/edit + 底部(>0.80h) + 宽(>0.30w)。"""
+    h, w = obs.image_h, obs.image_w
+    best = None
+    for e in obs.elements:
+        if e.kind not in ("ui", "edit", "control"):
+            continue
+        bx1, by1, bx2, by2 = e.bounds
+        cy = (by1 + by2) / 2
+        bw = bx2 - bx1
+        if cy > 0.80 * h and bw > 0.30 * w and (by2 - by1) < 0.12 * h:
+            if best is None or cy > best[1]:
+                best = e.center
+    return best
+
+
 def _focus_input(executor, obs, target_markers, profile, *, planner=None, image=None, point=None) -> tuple[int, int]:
-    """聚焦输入框，按「精确且便宜」优先分层（VL 仅最后兜底，不做首选）：
-    1) UIAutomator 真识别 EditText —— 语义+精确，标准 app 最佳（QQ/微信自绘拿不到）
+    """聚焦输入框，分层检测（最准+最便宜优先）：
+    1) UIAutomator EditText（标准 app 最精确；QQ/微信自绘拿不到）
     2) OCR 占位符文字（target_markers）
-    3) LLM 在 act 里给的坐标 point
-    4) 位置兜底：底部输入栏（聊天类输入框近白无对比，CV 也框不出；底部位置已足够准）
-    5) 视觉模型定位（planner.locate）—— 仅当以上都没有时的最后兜底（慢/近似）
-    说明：传统 CV 对「有对比的控件」(彩色按钮/有边框/图标) 更准，应优先于 VL；
-    但 QQ 空输入框是白底白框、无边可框，故这里用位置启发式而非 CV/VL。
+    3) 检测器/控件树产出的底部宽矮框（UI 检测器能可靠框出低对比输入框）
+    4) LLM 给的坐标 point
+    5) CV 图标行反推底栏（input_bar_center）
+    6) 位置兜底 0.40w×0.955h（只在全部失败时用）
     """
-    from ..perception import uia
+    from ..perception import cv_controls, uia
 
     xy: Optional[tuple[int, int]] = None
     try:
@@ -121,13 +136,17 @@ def _focus_input(executor, obs, target_markers, profile, *, planner=None, image=
         hit = find_candidate(obs.elements, target_markers, reject_markers=profile.forbidden_markers)
         if hit:
             xy = hit[1].center
+    if xy is None:
+        xy = _find_input_element(obs)
     if xy is None and point:
         try:
             xy = validate_point(point, (obs.image_w, obs.image_h))
         except SafetyError:
             xy = None
+    if xy is None and image is not None:
+        xy = cv_controls.input_bar_center(image)
     if xy is None:
-        xy = (int(obs.image_w * 0.40), int(obs.image_h * 0.93))
+        xy = (int(obs.image_w * 0.40), int(obs.image_h * 0.955))
     executor.tap(*xy)
     return xy
 
@@ -160,6 +179,7 @@ def run_agent(
     budget: Budget,
     loop: LoopConfig,
     icons=None,
+    ui_detect=None,
     vision_enabled: bool = False,
     with_cv: bool = False,
     with_ui: bool = False,
@@ -237,7 +257,7 @@ def run_agent(
         if exc:
             return manual_stop(executor, None, f"预算耗尽：{exc}", run_dir=run_dir)
 
-        image, obs = observe(executor, ocr, icons, with_foreground=True, with_cv=with_cv, with_ui=with_ui)
+        image, obs = observe(executor, ocr, icons, ui_detect=ui_detect, with_foreground=True, with_cv=with_cv, with_ui=with_ui)
 
         # 1) 硬停止：支付/验证码/成功等页面 -> 交人工
         m = contains(obs.elements, profile.hard_stop_markers)
@@ -491,6 +511,7 @@ def run_llm_agent(
     budget: Budget,
     loop: LoopConfig,
     icons=None,
+    ui_detect=None,
     with_cv: bool = False,
     with_ui: bool = False,
     run_dir: Optional[Path] = None,
@@ -505,12 +526,29 @@ def run_llm_agent(
     history: list[str] = []
     no_change = 0
     consec_fail = 0
+    recovery_back = 0  # 连续「已在前台仍想重启 -> 改按返回回退」次数；做了正常动作就清零
+    _last_action_key = ""  # 语义重复检测：kind+text
+    _repeat_count = 0
+    _last_caption_sig = ""  # 上次做 VL 标注的页面签名，避免同页重复调
     while True:
         exc = budget.exceeded()
         if exc:
             return manual_stop(executor, None, f"预算耗尽：{exc}", run_dir=run_dir)
 
-        image, obs = observe(executor, ocr, icons, with_foreground=True, with_cv=with_cv, with_ui=with_ui)
+        image, obs = observe(executor, ocr, icons, ui_detect=ui_detect, with_foreground=True, with_cv=with_cv, with_ui=with_ui,
+                             vl_caption=(ui_detect is not None and obs.signature != _last_caption_sig) if False else False)
+        # VL 标注放到 observe 外面：先拿 signature，签名变了才调（避免同页重复调 VL）
+        if ui_detect is not None and obs.signature != _last_caption_sig:
+            unlabeled = [e for e in obs.elements if e.text in ("[控件]", "") and e.kind in ("ui", "control")]
+            if unlabeled:
+                try:
+                    from ..perception.vl_caption import caption_controls
+                    obs = Observation(image_w=obs.image_w, image_h=obs.image_h,
+                                     elements=caption_controls(image, obs.elements),
+                                     signature=obs.signature, foreground=obs.foreground)
+                except Exception as exc:  # noqa: BLE001
+                    log.debug("VL 标注失败：%s", exc)
+            _last_caption_sig = obs.signature
         m = contains(obs.elements, profile.hard_stop_markers)
         if m:
             return manual_stop(executor, obs, f"命中硬停止标志：{m}", run_dir=run_dir, image=image)
@@ -529,6 +567,22 @@ def run_llm_agent(
             continue
         consec_fail = 0
 
+        # 语义重复检测：连续 3 次做同 kind+text 动作 → 告知 LLM 换策略
+        action_key = f"{action.kind}:{action.text or ''}"
+        if action_key == _last_action_key:
+            _repeat_count += 1
+        else:
+            _last_action_key = action_key
+            _repeat_count = 1
+        if _repeat_count >= 3 and action.kind not in ("done", "stop", "wait"):
+            hint = (f"⚠ 你已连续{_repeat_count}次执行相同动作({action.kind} {action.text!r})，"
+                    f"说明这个操作无效。请换思路：back返回、scroll翻页、或点别的控件")
+            history.append(hint)
+            log.info("重复动作警告：%s x%d", action_key, _repeat_count)
+            if _repeat_count >= 5:
+                return manual_stop(executor, obs, f"连续{_repeat_count}次重复动作无效：{action_key}",
+                                   run_dir=run_dir, image=image)
+
         if action.kind == "done":
             log.info("✅ 任务完成：%s", task)
             _save_audit(run_dir, f"{_stamp()}_DONE", image, obs, {"task": task})
@@ -543,6 +597,24 @@ def run_llm_agent(
 
         # 命令直达/启动（能靠指令就不点）
         if action.kind in ("launch", "intent"):
+            # 回退策略：app 打开后可能停在任意页(朋友圈/某聊天/文章)。LLM 若想重启一个「已在前台」
+            # 的 app，重启只会停回同一页 → 改按「返回」回退到主页；连续多次仍不行才交人工。
+            cur_pkg = (obs.foreground or "").split("/", 1)[0]
+            if action.kind == "launch" and action.text and cur_pkg == action.text:
+                recovery_back += 1
+                if recovery_back > 4:
+                    return manual_stop(
+                        executor, obs, f"{action.text} 反复回退仍未到可操作页面", run_dir=run_dir, image=image
+                    )
+                executor.back()
+                log.info("▶ 执行：back（%s 已在前台，回退到主页 第%d次）", action.text, recovery_back)
+                history.append(
+                    f"{action.text} 已在前台({(obs.foreground or '').split('/')[-1]})，"
+                    f"按返回回退一层找主页（第{recovery_back}次，别再重启）"
+                )
+                wait_for_change(executor, image, timeout=loop.transition_timeout, threshold=loop.transition_threshold)
+                time.sleep(loop.after_click_delay)
+                continue
             try:
                 if action.kind == "launch":
                     executor.launch_app(action.text)
@@ -561,6 +633,7 @@ def run_llm_agent(
             time.sleep(loop.after_click_delay)
             continue
 
+        recovery_back = 0  # 走到这里说明是正常动作(tap/text/scroll…)，清零回退计数
         # 解析执行参数 + 安全 + RiskGate（与 hybrid 一致）
         point: Optional[tuple[int, int]] = None
         target_text = ""

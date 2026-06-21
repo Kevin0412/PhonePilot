@@ -53,6 +53,39 @@ def detect_input_box(
     return (x + cw // 2, y0 + y + ch // 2)
 
 
+def input_bar_center(
+    image: Any,
+    *,
+    band: float = 0.16,
+    y_lo: float = 0.88,
+    y_hi: float = 0.985,
+    x_frac: float = 0.40,
+) -> Optional[tuple[int, int]]:
+    """自适应推导底部输入栏中心，找不到/不可信返回 None。
+
+    自绘聊天 app 的空输入框近白无对比、控件树也无 EditText，直接框输入框不可靠；
+    但底部那行**图标**(语音/表情/+/麦克风)有对比、能被 `detect_boxes` 检出。
+    取底部条带里**最靠下一簇**图标的纵向中心作为输入栏 y（随分辨率/比例/有无导航条自适应，
+    不写死比例）。横向 x 不敏感（输入框很宽），取偏左安全值即可。y 落在 [y_lo,y_hi]
+    之外视为不可信（可能是导航条/键盘提示条），返回 None 让调用方继续兜底。
+    """
+    h, w = image.shape[:2]
+    y0 = int(h * (1 - band))
+    cys: list[int] = []
+    for x1, y1, x2, y2 in detect_boxes(image):
+        cy = (y1 + y2) // 2
+        if cy >= y0 and (y2 - y1) < 0.06 * h and 0.015 * w < (x2 - x1) < 0.18 * w:
+            cys.append(cy)
+    if not cys:
+        return None
+    ymax = max(cys)
+    cluster = [c for c in cys if abs(c - ymax) < 0.03 * h]  # 最靠下那一行图标
+    y = int(sum(cluster) / len(cluster))
+    if not (y_lo * h <= y <= y_hi * h):
+        return None
+    return (int(w * x_frac), y)
+
+
 def _iou(a: tuple[int, int, int, int], b: tuple[int, int, int, int]) -> float:
     ax1, ay1, ax2, ay2 = a
     bx1, by1, bx2, by2 = b

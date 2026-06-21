@@ -76,6 +76,19 @@ def build_icons(cfg: dict):
     return TemplateIconMatcher(cfg["icons"]["template_dir"])
 
 
+def build_ui_detect(cfg: dict):
+    """模型文件存在就自动启用，不存在返回 None（静默回退粗糙 CV）。"""
+    from pathlib import Path as _P
+
+    ud = cfg.get("ui_detect", {})
+    p = _P(ud.get("model_path", ""))
+    if not p.is_file():
+        return None
+    from .perception.ui_detect import OmniParserDetector
+
+    return OmniParserDetector(p, confidence=ud.get("confidence", 0.15), long_side=ud.get("long_side", 1280))
+
+
 def build_llm(cfg: dict, *, mock_plan: dict | None = None):
     kind = cfg["llm"]["kind"]
     if kind == "mock":
@@ -187,6 +200,7 @@ def cmd_run(args, cfg: dict) -> int:
     executor = build_executor(cfg, mock_frames=mock_frames)
     ocr = build_ocr(cfg, executor)
     icons = build_icons(cfg)
+    ui_detect = build_ui_detect(cfg)
     llm = build_llm(cfg, mock_plan=mock_plan)
     vision = build_vision(cfg)
     confirm_fn = (lambda _p: "y") if cfg["risk"]["auto_confirm_all"] else None
@@ -203,20 +217,23 @@ def cmd_run(args, cfg: dict) -> int:
     with_cv = bool(perc.get("cv", False)) and not is_mock   # CV/控件树需真机像素，mock 跳过
     with_ui = bool(perc.get("ui", False)) and not is_mock
 
-    log.info("任务：%s（模式=%s，CV画框=%s 控件树=%s）", task, args.mode, with_cv, with_ui)
+    log.info("任务：%s（模式=%s，CV画框=%s 控件树=%s UI检测=%s）",
+             task, args.mode, with_cv, with_ui, ui_detect is not None)
     rc = 1
     try:
         if args.mode == "llm":
             rc = run_llm_agent(
                 task, executor=executor, ocr=ocr, planner=planner, gate=gate, profile=profile,
-                budget=budget, loop=loop, icons=icons, with_cv=with_cv, with_ui=with_ui,
+                budget=budget, loop=loop, icons=icons, ui_detect=ui_detect,
+                with_cv=with_cv, with_ui=with_ui,
                 run_dir=run_dir, dry_run=args.dry_run,
             )
         else:
             plan = planner.make_plan(task)
             rc = run_agent(
                 plan, executor=executor, ocr=ocr, planner=planner, gate=gate, profile=profile,
-                budget=budget, loop=loop, icons=icons, vision_enabled=vision is not None,
+                budget=budget, loop=loop, icons=icons, ui_detect=ui_detect,
+                vision_enabled=vision is not None,
                 with_cv=with_cv, with_ui=with_ui, run_dir=run_dir, dry_run=args.dry_run,
             )
     except Exception as exc:  # noqa: BLE001

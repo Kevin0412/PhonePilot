@@ -168,17 +168,39 @@ def test_llm_mode_drives_steps_to_done():
     assert len([a for a in ex.actions if a["kind"] == "tap"]) == 2
 
 
+def test_relaunch_when_already_foreground_recovers_via_back():
+    """回退策略：app 已在前台但停在非预期页(朋友圈)，LLM 误判要重启时，
+    循环改按「返回」回退找主页（绝不重启已在前台的 app），多次仍不行才交人工。"""
+    from phonepilot.agent.loop import run_llm_agent
+
+    fg = "com.tencent.mm/com.tencent.mm.plugin.sns.ui.SnsBrowseUI"
+    frames = [MockFrame([el("朋友圈"), el("相机")], fg)]
+    ex = MockExecutor(frames)
+    ocr = MockOcrEngine(ex)
+    llm = MockLLMClient(decisions=[{"action": "launch", "package": "com.tencent.mm"}] * 8)
+    rc = run_llm_agent(
+        "打开微信给某人发消息", executor=ex, ocr=ocr, planner=Planner(llm),
+        gate=RiskGate(), profile=Profile(), budget=Budget(), loop=_fast_loop(),
+    )
+    assert rc == HANDOVER
+    assert not [a for a in ex.actions if a["kind"] == "launch"]  # 从不重启已在前台的 app
+    backs = [a for a in ex.actions if a["kind"] == "key" and "BACK" in str(a.get("keycode", "")).upper()]
+    assert len(backs) == 4  # 连续回退上限 4 次后交人工
+
+
 def test_hard_stop_marker_hands_over():
+    # 硬停标志用「滑块/人机验证」这类几乎不会出现在正常内容里的短语；
+    # 通用内容词(如"验证码")不再当硬停子串，避免聊天/朋友圈内容误触发（由 LLM 判断+返回 stop 兜底）。
     frames = [
         MockFrame([el("设置")], "launcher"),
-        MockFrame([el("请输入验证码"), el("确定")], "captcha"),
+        MockFrame([el("拖动滑块完成验证"), el("确定")], "captcha"),
     ]
     plan = {
         "steps": [{"goal": "x", "success_markers": ["永不出现"], "target_markers": ["设置"]}],
         "final_success_markers": ["永不出现"],
     }
     rc, ex = _run(frames, plan)
-    assert rc == HANDOVER  # 命中「验证码」硬停止
+    assert rc == HANDOVER  # 命中「拖动滑块」硬停止
     assert len([a for a in ex.actions if a["kind"] == "tap"]) == 1
 
 

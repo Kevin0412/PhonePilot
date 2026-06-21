@@ -22,8 +22,11 @@ DEFAULTS: dict[str, Any] = {
     "executor": {"kind": "mock", "serial": None, "adb_path": "adb", "mock_frames_dir": "examples/mock_frames"},
     "ocr": {"kind": "rapidocr", "min_score": 0.55, "use_cuda": False, "scale": 1.0},
     "icons": {"enabled": True, "template_dir": "phonepilot/perception/assets/icons"},
-    # 多源感知融合：把 OCR + CV画框 + 控件树 打包给 LLM（LLM 选 index，坐标来自包围盒，不靠 VL）
-    "perception": {"cv": True, "ui": False},
+    # UI 控件检测(YOLO)：model_path 文件存在就自动启用，不存在静默回退 CV。
+    "ui_detect": {"model_path": "models/omniparser_onnx/onnx/model.onnx", "confidence": 0.15, "long_side": 1280},
+    # 多源感知融合：把 OCR + CV画框/检测器 + 控件树 全部打包给 LLM（LLM 选 index，坐标来自包围盒，不靠 VL）。
+    # ui=控件树(UIAutomator)：能看到截图拍不到的系统浮层(如华为主/分身选择器)、给精确 bounds 与 content-desc。
+    "perception": {"cv": True, "ui": True},
     "llm": {
         "kind": "mock",
         "fast": {"thinking": False, "max_tokens": 160, "temperature": 0.0},

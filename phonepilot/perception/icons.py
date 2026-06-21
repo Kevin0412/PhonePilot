@@ -44,7 +44,10 @@ class TemplateIconMatcher(IconMatcher):
             for png in sorted(self.template_dir.glob("*.png")):
                 tmpl = cv2.imread(str(png), cv2.IMREAD_GRAYSCALE)
                 if tmpl is not None and tmpl.size:
-                    templates.append((png.stem, tmpl))
+                    # 文件名 search_dark.png → 图标名 search（下划线前的第一段作为语义名，
+                    # 允许同一图标多个外观变体：search.png / search_dark.png 都输出 [icon:search]）
+                    icon_name = png.stem.split("_")[0] if "_" in png.stem else png.stem
+                    templates.append((icon_name, tmpl))
         self._templates = templates
         if templates:
             log.info("加载图标模板 %d 个: %s", len(templates), [n for n, _ in templates])

@@ -33,6 +33,18 @@ class IconMatcher(abc.ABC):
         raise NotImplementedError
 
 
+class UiDetector(abc.ABC):
+    """检测屏幕上的可交互 UI 控件（按钮/输入框/图标等），返回带包围盒的元素。
+
+    与 OCR（文字）和 IconMatcher（模板图标）互补：覆盖自绘低对比控件、无标签图标等
+    前两者看不见的元素。返回元素 ``kind`` 区分类型（"ui"=通用可交互控件）。
+    """
+
+    @abc.abstractmethod
+    def detect(self, image: Any) -> list[ScreenElement]:
+        raise NotImplementedError
+
+
 class NoopIconMatcher(IconMatcher):
     """空实现：不识别任何图标。MVP 在未配置模板时的默认。"""
 

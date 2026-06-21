@@ -149,13 +149,81 @@ class AdbExecutor(Executor):
         m = _FOCUS_RE.search(out)
         return m.group(1) if m else ""
 
+    def _resolve_launch_activity(self, package: str) -> str:
+        """解析 app 主启动 Activity（cmd package resolve-activity --brief）。失败返回空。
+
+        输出末行形如 ``com.tencent.mm/.ui.LauncherUI``。
+        """
+        try:
+            out = self._shell("cmd", "package", "resolve-activity", "--brief", package, timeout=8)
+        except Exception as exc:  # noqa: BLE001
+            log.debug("resolve-activity %s 失败：%s", package, exc)
+            return ""
+        for line in reversed(out.splitlines()):
+            line = line.strip()
+            if line.startswith(package + "/"):
+                return line
+        return ""
+
     def launch_app(self, package: str) -> None:
-        # monkey 按包名启动 LAUNCHER 入口，无需知道具体 Activity；最稳妥的「命令启动」方式。
-        out = self._shell(
-            "monkey", "-p", package, "-c", "android.intent.category.LAUNCHER", "1", timeout=10
-        )
-        if "No activities found" in out or "Error" in out:
-            raise RuntimeError(f"monkey 启动 {package} 失败：{out.strip()[:120]}")
+        # 优先 am start 到解析出的主 Activity：monkey 对开了「应用分身」的 app 会静默失灵
+        # （事件已注入但不到前台），唯有 am start 能正常触发华为主/分身选择器。解析失败再回退 monkey。
+        activity = self._resolve_launch_activity(package)
+        launched = False
+        if activity:
+            try:
+                out = self._shell("am", "start", "-n", activity, timeout=10)
+                launched = "Error" not in out and "Exception" not in out
+            except Exception as exc:  # noqa: BLE001
+                log.debug("am start %s 失败：%s", activity, exc)
+        if not launched:
+            out = self._shell(
+                "monkey", "-p", package, "-c", "android.intent.category.LAUNCHER", "1", timeout=10
+            )
+            if "No activities found" in out:
+                raise RuntimeError(f"启动 {package} 失败：{out.strip()[:120]}")
+        # 轮询前台直到目标包真的到前台（最多 ~6s）：app 可能慢启动；华为「应用分身」会先弹出
+        # 主/分身选择器(HwChooser，截图拍不到)，需在此期间选主应用后 app 才到前台。固定 sleep 会两头落空。
+        fg = ""
+        handled_chooser = False
+        for _ in range(12):
+            time.sleep(0.5)
+            fg = self.foreground()
+            if any(k in fg for k in ("HwChooser", "ResolverActivity", "ChooserActivity")):
+                if not handled_chooser:
+                    self._handle_twin_chooser()
+                    handled_chooser = True
+                continue
+            if fg.split("/", 1)[0] == package or package in fg:
+                return  # 目标 app 已到前台
+        log.warning("launch %s 后未确认到前台（当前前台=%s），交由上层按屏幕应对", package, fg or "未知")
+
+    def _handle_twin_chooser(self) -> None:
+        """华为「应用分身」会弹出主/分身选择器(HwChooserActivity，截图拍不到但控件树可见)。
+        自动选择主应用(content-desc 不含「分身」的那项)。"""
+        try:
+            fg = self.foreground()
+        except Exception:  # pragma: no cover
+            return
+        if not any(k in fg for k in ("HwChooser", "ResolverActivity", "ChooserActivity")):
+            return
+        xml = self.ui_dump()
+        if not xml:
+            return
+        for m in re.finditer(r"<node\b([^>]*?)/?>", xml):
+            attrs = m.group(1)
+            if "text1" not in attrs:  # 选择器的应用名条目 resource-id=android:id/text1
+                continue
+            desc = re.search(r'content-desc="([^"]*)"', attrs)
+            bounds = re.search(r'bounds="\[(-?\d+),(-?\d+)\]\[(-?\d+),(-?\d+)\]"', attrs)
+            if not (desc and bounds and desc.group(1)):
+                continue
+            if "分身" in desc.group(1) or "clone" in desc.group(1).lower():
+                continue
+            x1, y1, x2, y2 = (int(v) for v in bounds.groups())
+            self.tap((x1 + x2) // 2, (y1 + y2) // 2)  # 选主应用
+            time.sleep(2.0)
+            return
 
     def start_intent(self, action: str, data: str = "") -> None:
         args = ["am", "start", "-a", action]

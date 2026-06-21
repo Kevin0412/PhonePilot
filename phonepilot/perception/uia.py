@@ -55,9 +55,11 @@ def parse_controls(xml: str) -> list[ScreenElement]:
         if not b:
             continue
         is_edit = "EditText" in cls
-        label = (n.get("text") or n.get("content-desc") or "").strip()
+        desc = (n.get("content-desc") or "").strip()
+        label = (n.get("text") or desc or "").strip()
         clickable = n.get("clickable") == "true"
-        if not is_edit and not (clickable and label):
+        # 收纳：输入框 / 可点带文字控件 / 任何带 content-desc 的节点(图标按钮、系统选择器选项等)
+        if not is_edit and not (clickable and label) and not desc:
             continue
         x1, y1, x2, y2 = b
         box = ((x1, y1), (x2, y1), (x2, y2), (x1, y2))
