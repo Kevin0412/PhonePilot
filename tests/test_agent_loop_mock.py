@@ -53,6 +53,47 @@ def test_demo_completes_with_two_taps():
     assert len(taps) == 2
 
 
+def test_launch_app_by_command_not_icon_tap():
+    # 「打开设置」给了 package -> 用命令启动，不点桌面图标
+    frames = [
+        MockFrame([el("某桌面图标")], "launcher"),
+        MockFrame([el("蓝牙"), el("电池"), el("WLAN")], "com.android.settings"),
+        MockFrame([el("可用网络")], "settings/wlan"),
+    ]
+    plan = {
+        "steps": [
+            {"goal": "打开设置", "success_markers": ["蓝牙", "电池"], "target_markers": ["设置"], "package": "com.android.settings"},
+            {"goal": "进入WLAN", "success_markers": ["可用网络"], "target_markers": ["WLAN"]},
+        ],
+        "final_success_markers": ["可用网络"],
+    }
+    rc, ex = _run(frames, plan)
+    kinds = [a["kind"] for a in ex.actions]
+    assert rc == DONE
+    assert kinds[0] == "launch" and ex.actions[0]["package"] == "com.android.settings"
+    assert kinds.count("tap") == 1  # 只点了 WLAN，没点桌面图标
+
+
+def test_intent_step_completes_by_navigation_not_text():
+    # intent 直达目标页；即便页面文字与计划的 success_markers 不一致(ROM 差异)，也应靠导航判完成
+    frames = [
+        MockFrame([el("桌面")], "launcher"),
+        MockFrame([el("WLAN"), el("可用WLAN"), el("某网络")], "com.android.settings/WifiSettings"),
+    ]
+    plan = {
+        "steps": [{
+            "goal": "进入WLAN页面", "success_markers": ["可用网络"], "target_markers": ["WLAN"],
+            "intent": "android.settings.WIFI_SETTINGS",
+        }],
+        "final_success_markers": ["可用网络"],
+    }
+    rc, ex = _run(frames, plan)
+    kinds = [a["kind"] for a in ex.actions]
+    assert rc == DONE
+    assert kinds == ["intent"]  # 只发 intent，零点击
+    assert ex.actions[0]["action"] == "android.settings.WIFI_SETTINGS"
+
+
 def test_hard_stop_marker_hands_over():
     frames = [
         MockFrame([el("设置")], "launcher"),

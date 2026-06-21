@@ -216,6 +216,8 @@ class Step:
     goal: str
     success_markers: list[str] = field(default_factory=list)   # 出现即视为本步完成
     target_markers: list[str] = field(default_factory=list)    # 本步应点击的候选文字
+    package: str = ""           # 若本步是打开某 app，填包名 -> 命令启动，不点图标
+    intent: str = ""            # 若本步可直达某系统页面，填 intent action -> 命令直达（最稳）
     risk: RiskLevel = RiskLevel.LOW
 
     def to_dict(self) -> dict:
@@ -223,6 +225,8 @@ class Step:
             "goal": self.goal,
             "success_markers": list(self.success_markers),
             "target_markers": list(self.target_markers),
+            "package": self.package,
+            "intent": self.intent,
             "risk": self.risk.value,
         }
 
@@ -232,6 +236,8 @@ class Step:
             goal=str(data.get("goal", "")).strip(),
             success_markers=[str(s) for s in data.get("success_markers", []) if str(s).strip()],
             target_markers=[str(s) for s in data.get("target_markers", []) if str(s).strip()],
+            package=str(data.get("package", "")).strip(),
+            intent=str(data.get("intent", "")).strip(),
             risk=RiskLevel.from_str(data.get("risk")),
         )
 

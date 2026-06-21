@@ -54,6 +54,14 @@ class Executor(abc.ABC):
     def recent_apps(self) -> None:
         self.key("KEYCODE_APP_SWITCH")
 
+    def launch_app(self, package: str) -> None:
+        """用命令直接启动 app（能靠指令就不点图标）。子类实现（ADB: monkey/am；App: Shizuku 同命令）。"""
+        raise NotImplementedError("此执行器不支持 launch_app")
+
+    def start_intent(self, action: str, data: str = "") -> None:
+        """用命令直达某页面（如系统设置子页）。子类实现（ADB: am start -a <action>）。"""
+        raise NotImplementedError("此执行器不支持 start_intent")
+
     def keep_awake(self) -> None:
         """尽量保持屏幕常亮（可选，子类按平台实现）。"""
 

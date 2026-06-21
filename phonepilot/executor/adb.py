@@ -106,6 +106,22 @@ class AdbExecutor(Executor):
         m = _FOCUS_RE.search(out)
         return m.group(1) if m else ""
 
+    def launch_app(self, package: str) -> None:
+        # monkey 按包名启动 LAUNCHER 入口，无需知道具体 Activity；最稳妥的「命令启动」方式。
+        out = self._shell(
+            "monkey", "-p", package, "-c", "android.intent.category.LAUNCHER", "1", timeout=10
+        )
+        if "No activities found" in out or "Error" in out:
+            raise RuntimeError(f"monkey 启动 {package} 失败：{out.strip()[:120]}")
+
+    def start_intent(self, action: str, data: str = "") -> None:
+        args = ["am", "start", "-a", action]
+        if data:
+            args += ["-d", data]
+        out = self._shell(*args, timeout=10)
+        if "Error" in out or "Exception" in out:
+            raise RuntimeError(f"am start -a {action} 失败：{out.strip()[:160]}")
+
     def keep_awake(self) -> None:
         try:
             self._shell("svc", "power", "stayon", "usb", timeout=5)

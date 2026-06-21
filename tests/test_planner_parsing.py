@@ -81,6 +81,13 @@ def test_make_plan_ok():
     assert len(plan.steps) == 1 and plan.steps[0].target_markers == ["设置"]
 
 
+def test_make_plan_parses_step_package():
+    j = _plan_json()
+    j["steps"][0]["package"] = "com.android.settings"
+    plan = Planner(MockLLMClient(plan=j)).make_plan("打开设置")
+    assert plan.steps[0].package == "com.android.settings"
+
+
 def test_make_plan_empty_steps_raises():
     p = Planner(MockLLMClient(plan={"steps": []}))
     with pytest.raises(PlanError):

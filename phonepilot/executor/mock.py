@@ -42,7 +42,7 @@ class MockExecutor(Executor):
         self,
         frames: Sequence[MockFrame],
         *,
-        advance_on: Sequence[str] = ("tap", "long_press"),
+        advance_on: Sequence[str] = ("tap", "long_press", "launch", "intent"),
     ) -> None:
         if not frames:
             raise ValueError("MockExecutor 需要至少一帧")
@@ -89,6 +89,12 @@ class MockExecutor(Executor):
         if "BACK" in code:
             self.cursor = max(self.cursor - 1, 0)
         self._record("key", keycode=keycode)
+
+    def launch_app(self, package: str) -> None:
+        self._record("launch", package=package)
+
+    def start_intent(self, action: str, data: str = "") -> None:
+        self._record("intent", action=action, data=data)
 
     def foreground(self) -> str:
         return self.current_frame().foreground

@@ -13,13 +13,28 @@ PLAN_SYSTEM_PROMPT = """你是手机自动化 agent 的任务规划器，负责�
 2. 每步给出：
    - goal：该步要达成什么（简短中文）。
    - success_markers：该步完成后，屏幕上应当出现的若干文字（用于本地判断是否完成）。
+     【重要】要选「进入该界面后才出现、且该界面内部独有」的文字；绝不要用 app 名称本身做完成标志，
+     因为手机桌面/应用列表会显示 app 图标名，用 app 名会被误判成「已进入」。
+     例：「打开设置」的完成标志应是进入设置后才有的「蓝牙 / 电池 / 显示和亮度 / 移动网络」等，而不是「设置」。
+     同理进入二级页面时，要用该页面内部的内容做完成标志，而不是上级菜单里的入口名——
+     例：「进入 WLAN 页面」用「可用网络 / 已连接 / 添加网络」，而不是「WLAN」（WLAN 在设置主页就是个入口，会误判）。
    - target_markers：该步应当点击的候选控件文字，按优先级排列（要与屏幕上可能出现的文字一致）。
+   - intent（可选，优先）：若该步可直达某系统页面，填 Android intent action，框架用命令直达，最稳，免去逐级点击。
+     常见：WLAN android.settings.WIFI_SETTINGS；蓝牙 android.settings.BLUETOOTH_SETTINGS；
+     流量 android.settings.DATA_USAGE_SETTINGS；位置 android.settings.LOCATION_SOURCE_SETTINGS；
+     飞行模式 android.settings.AIRPLANE_MODE_SETTINGS；应用详情/列表 android.settings.APPLICATION_SETTINGS；
+     设置首页 android.settings.SETTINGS。能一条 intent 直达的任务，可只用一步。
+   - package（可选）：若该步是「打开某个 app」，填包名——框架用命令启动，不点图标。
+     常见：微信 com.tencent.mm，QQ com.tencent.mobileqq，哔哩哔哩 tv.danmaku.bili，
+     支付宝 com.eg.android.AlipayGphone，淘宝 com.taobao.taobao，抖音 com.ss.android.ugc.aweme。不确定就留空。
    - risk：该步风险等级 low/medium/high；涉及支付、删除、发送、授权、转账、卸载等填 high。
 3. final_success_markers：整个任务完成后应出现的文字。
 4. overall_risk：整体风险等级。
 
+原则：能用命令直达就别逐级点击——优先 intent，其次 package；二者都给完成标志用页面内部内容。
+
 只输出一个 JSON 对象，不要任何解释或多余文字：
-{"goal":"...","steps":[{"goal":"...","success_markers":["..."],"target_markers":["..."],"risk":"low"}],"final_success_markers":["..."],"overall_risk":"low"}
+{"goal":"...","steps":[{"goal":"...","success_markers":["..."],"target_markers":["..."],"intent":"","package":"","risk":"low"}],"final_success_markers":["..."],"overall_risk":"low"}
 """
 
 # 含独有短语「单步动作」——用于 Mock 路由识别。

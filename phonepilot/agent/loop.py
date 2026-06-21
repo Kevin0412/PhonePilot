@@ -143,7 +143,8 @@ def run_agent(
     unknown_since: Optional[float] = None
     loading_since: Optional[float] = None
     final_wait_since: Optional[float] = None
-    last_fg_at = 0.0
+    step_entered_sig: Optional[str] = None   # 进入当前步时的页面签名（用于「确实导航过」判定）
+    launched_step_idx = -1                    # 已用命令启动过 app 的步序号（避免重复启动）
 
     def now() -> float:
         return time.monotonic()
@@ -179,10 +180,7 @@ def run_agent(
         if exc:
             return manual_stop(executor, None, f"预算耗尽：{exc}", run_dir=run_dir)
 
-        with_fg = (now() - last_fg_at) >= loop.foreground_interval
-        image, obs = observe(executor, ocr, icons, with_foreground=with_fg)
-        if with_fg:
-            last_fg_at = now()
+        image, obs = observe(executor, ocr, icons, with_foreground=True)
 
         # 1) 硬停止：支付/验证码/成功等页面 -> 交人工
         m = contains(obs.elements, profile.hard_stop_markers)
@@ -190,17 +188,33 @@ def run_agent(
             _save_audit(run_dir, f"{_stamp()}_hardstop", image, obs, {"reason": m})
             return manual_stop(executor, obs, f"命中硬停止标志：{m}", run_dir=run_dir, image=image)
 
-        # 2) 完成判据：连续推进所有已满足的子目标
+        # 2) 完成判据：连续推进已满足的子目标。
+        #    防误判：只有「进入本步后页面确实变化过(即真导航了)」或本步无可点目标时，才允许用
+        #    success_markers 判完成——否则上级菜单里的入口名(如「WLAN」)会被当成「已进入 WLAN 页」。
         while step_idx < len(plan.steps):
             cur = plan.steps[step_idx]
-            if cur.success_markers and contains(obs.elements, cur.success_markers):
+            if step_entered_sig is None:
+                step_entered_sig = obs.signature
+            navigated = obs.signature != step_entered_sig
+            # 命令驱动的步骤用「导航/前台」判完成，比文字标志可靠（文字跨 ROM 易变：可用网络 vs 可用WLAN）
+            pkg_open = bool(cur.package) and cur.package in (obs.foreground or "")
+            intent_reached = bool(cur.intent) and launched_step_idx == step_idx and navigated
+            done_here = pkg_open or intent_reached or (
+                bool(cur.success_markers)
+                and contains(obs.elements, cur.success_markers)
+                and (navigated or not cur.target_markers)
+            )
+            if done_here:
                 log.info("✓ 子目标完成（%d/%d）：%s", step_idx + 1, len(plan.steps), cur.goal)
                 step_idx += 1
+                step_entered_sig = None
             else:
                 break
 
         if step_idx >= len(plan.steps):
-            if not plan.final_success_markers or contains(obs.elements, plan.final_success_markers):
+            # 末步是命令驱动(intent/package)的，达成即视作完成——最终文字标志跨 ROM 易变，不强求
+            last_cmd = bool(plan.steps) and bool(plan.steps[-1].intent or plan.steps[-1].package)
+            if not plan.final_success_markers or last_cmd or contains(obs.elements, plan.final_success_markers):
                 log.info("✅ 任务完成：%s", plan.task)
                 _save_audit(run_dir, f"{_stamp()}_DONE", image, obs, {"task": plan.task})
                 return DONE
@@ -212,6 +226,26 @@ def run_agent(
             continue
 
         step = plan.steps[step_idx]
+
+        # 2.5) 能用命令就别点：本步若给了 intent/包名，直接命令直达/启动，不点图标（更稳）
+        if launched_step_idx != step_idx and (step.intent or step.package):
+            if dry_run:
+                log.info("[dry-run] 下一步：命令打开 %s（不点击）", step.intent or step.package)
+                return DONE
+            launched_step_idx = step_idx
+            try:
+                if step.intent:
+                    executor.start_intent(step.intent)
+                    log.info("▶ 命令直达(intent)：%s", step.intent)
+                else:
+                    executor.launch_app(step.package)
+                    log.info("▶ 命令启动应用：%s", step.package)
+                budget.tick()
+                last_sig = ""
+                time.sleep(loop.after_click_delay)
+                continue
+            except Exception as e:  # noqa: BLE001 - 命令失败回退到点击
+                log.warning("命令打开失败（%s），回退点击：%s", step.intent or step.package, e)
 
         # 3) 本地规则决策
         action = local_rule_decision(obs.elements, step, profile, allow_scroll=budget.scroll_ok())
