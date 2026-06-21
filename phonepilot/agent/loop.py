@@ -529,6 +529,7 @@ def run_llm_agent(
     recovery_back = 0  # 连续「已在前台仍想重启 -> 改按返回回退」次数；做了正常动作就清零
     _last_action_key = ""  # 语义重复检测：kind+text
     _repeat_count = 0
+    _action_window: list[str] = []  # 最近 N 步的 action_key，检测交替循环
     _last_caption_sig = ""  # 上次做 VL 标注的页面签名，避免同页重复调
     while True:
         exc = budget.exceeded()
@@ -567,21 +568,36 @@ def run_llm_agent(
             continue
         consec_fail = 0
 
-        # 语义重复检测：连续 3 次做同 kind+text 动作 → 告知 LLM 换策略
+        # 语义重复检测（两层）：
+        # 1) 连续相同动作：tap:微信 x5 → 停
+        # 2) 交替循环：tap:头像→back→tap:头像→back（最近8步只有≤2种动作）→ 停
         action_key = f"{action.kind}:{action.text or ''}"
         if action_key == _last_action_key:
             _repeat_count += 1
         else:
             _last_action_key = action_key
             _repeat_count = 1
+        _action_window.append(action_key)
+        if len(_action_window) > 8:
+            _action_window.pop(0)
+
+        _is_loop = False
         if _repeat_count >= 3 and action.kind not in ("done", "stop", "wait"):
             hint = (f"⚠ 你已连续{_repeat_count}次执行相同动作({action.kind} {action.text!r})，"
-                    f"说明这个操作无效。请换思路：back返回、scroll翻页、或点别的控件")
+                    f"说明这个操作无效。请换一种完全不同的思路")
             history.append(hint)
             log.info("重复动作警告：%s x%d", action_key, _repeat_count)
-            if _repeat_count >= 5:
-                return manual_stop(executor, obs, f"连续{_repeat_count}次重复动作无效：{action_key}",
-                                   run_dir=run_dir, image=image)
+            _is_loop = _repeat_count >= 5
+        elif len(_action_window) >= 6 and len(set(_action_window[-6:])) <= 2:
+            cycle = "/".join(sorted(set(_action_window[-6:])))
+            hint = (f"⚠ 你在两个动作间反复循环({cycle})，已循环{len(_action_window)//2}轮。"
+                    f"这条路走不通，请换一种完全不同的方法——比如用 launch 命令、点其他控件、或 scroll")
+            history.append(hint)
+            log.info("交替循环警告：%s 窗口=%s", cycle, _action_window[-6:])
+            _is_loop = len(_action_window) >= 8 and len(set(_action_window)) <= 2
+        if _is_loop:
+            return manual_stop(executor, obs, f"动作循环无法脱困：{_action_window[-4:]}",
+                               run_dir=run_dir, image=image)
 
         if action.kind == "done":
             log.info("✅ 任务完成：%s", task)
