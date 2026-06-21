@@ -62,6 +62,13 @@ class Executor(abc.ABC):
         """用命令直达某页面（如系统设置子页）。子类实现（ADB: am start -a <action>）。"""
         raise NotImplementedError("此执行器不支持 start_intent")
 
+    def prepare_input(self) -> None:
+        """为文字输入做准备（如提前切到可编程输入法），应在聚焦输入框之前调用。默认无操作。"""
+
+    def ui_dump(self) -> str:
+        """返回 UIAutomator 无障碍控件树 XML（标准 app 含 EditText/bounds/content-desc）。默认空串。"""
+        return ""
+
     def keep_awake(self) -> None:
         """尽量保持屏幕常亮（可选，子类按平台实现）。"""
 

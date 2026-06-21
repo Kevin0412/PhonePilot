@@ -145,6 +145,29 @@ def test_verify_passes_then_acts():
     assert any(a["kind"] == "tap" for a in ex.actions)  # 校验通过，执行了点击
 
 
+def test_llm_mode_drives_steps_to_done():
+    from phonepilot.agent.loop import run_llm_agent
+
+    frames = [
+        MockFrame([el("设置", center=(620, 1300))], "launcher"),
+        MockFrame([el("WLAN", center=(540, 520))], "settings"),
+        MockFrame([el("可用网络")], "wlan"),
+    ]
+    ex = MockExecutor(frames)
+    ocr = MockOcrEngine(ex)
+    llm = MockLLMClient(decisions=[
+        {"action": "tap", "index": 0, "text": "设置"},
+        {"action": "tap", "index": 0, "text": "WLAN"},
+        {"action": "done"},
+    ])
+    rc = run_llm_agent(
+        "打开设置进入WLAN", executor=ex, ocr=ocr, planner=Planner(llm),
+        gate=RiskGate(), profile=Profile(), budget=Budget(), loop=_fast_loop(),
+    )
+    assert rc == DONE
+    assert len([a for a in ex.actions if a["kind"] == "tap"]) == 2
+
+
 def test_hard_stop_marker_hands_over():
     frames = [
         MockFrame([el("设置")], "launcher"),

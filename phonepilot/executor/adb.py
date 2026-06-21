@@ -113,6 +113,11 @@ class AdbExecutor(Executor):
             self._shell("ime", "set", _ADBKB_IME, timeout=5)
             time.sleep(0.5)
 
+    def prepare_input(self) -> None:
+        # 在聚焦输入框之前先切到 ADBKeyboard，确保聚焦时可编程输入法已就绪（顺序很关键）。
+        if self._has_adbkeyboard():
+            self._ensure_adbkb()
+
     def text(self, value: str) -> None:
         if not value:
             return
@@ -157,6 +162,14 @@ class AdbExecutor(Executor):
             self._shell("svc", "power", "stayon", "usb", timeout=5)
         except Exception:  # pragma: no cover
             pass
+
+    def ui_dump(self) -> str:
+        try:
+            self._shell("uiautomator", "dump", "/sdcard/pp_ui.xml", timeout=12)
+            return self._shell("cat", "/sdcard/pp_ui.xml", timeout=8)
+        except Exception as exc:  # noqa: BLE001 - 控件树拿不到就回退其它聚焦方式
+            log.debug("uiautomator dump 失败：%s", exc)
+            return ""
 
     def close(self) -> None:
         # 恢复用户原来的输入法（之前为中文输入切到了 ADBKeyboard）

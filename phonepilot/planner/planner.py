@@ -75,6 +75,10 @@ def action_from_dict(data: Any, *, default_reason: str = "") -> Action:
 
     if kind == "text":
         text = str(data.get("input") or data.get("text") or "")
+    elif kind == "launch":
+        text = str(data.get("package") or data.get("text") or "")
+    elif kind == "intent":
+        text = str(data.get("intent") or data.get("text") or "")
     else:
         text = str(data.get("text") or "")
 
@@ -94,6 +98,9 @@ def action_from_dict(data: Any, *, default_reason: str = "") -> Action:
     if action.kind in ("tap", "long_press") and action.index is None and action.point is None:
         log.warning("%s 动作缺少 index 与 point，降级为 wait：%s", action.kind, data)
         return Action(kind="wait", reason="tap 缺少目标(index/point)")
+    if action.kind in ("launch", "intent") and not action.text:
+        log.warning("%s 动作缺少 包名/intent，降级为 wait：%s", action.kind, data)
+        return Action(kind="wait", reason="launch/intent 缺少目标")
     return action
 
 
@@ -167,6 +174,35 @@ class Planner:
             log.warning("LLM decide(%s) 失败：%s", mode, exc)
             return Action(kind="wait", reason=f"llm-{mode} error: {exc}")
         return action_from_dict(data, default_reason=f"{mode}-llm")
+
+    # ---- 逐步 LLM 驱动：每个动作都看当前屏幕决策（ReAct GUI agent） ---- #
+    def act(self, task: str, obs: Observation, history: list[str], *, mode: str = "fast") -> Action:
+        # 默认用紧凑的「文字+坐标」上下文（比逐元素 JSON 小很多，更不易触发空/超时响应）
+        screen = (
+            context.format_rich(obs.elements, obs.image_w, obs.image_h)
+            if mode == "rich"
+            else context.format_fast(obs.elements, obs.image_w, obs.image_h)
+        )
+        hist = "\n".join(history[-8:]) if history else "（无）"
+        user = (
+            f"总任务：{task}\n当前前台：{obs.foreground or '未知'}\n"
+            f"已执行动作（最近在后）：\n{hist}\n\n"
+            f"屏幕尺寸：{obs.image_w}x{obs.image_h}；元素后 @(x,y) 为归一化位置。\n"
+            f"当前屏幕元素：\n{screen}\n\n请决定下一个动作。"
+        )
+        opts = self.rich if mode == "rich" else self.fast
+        last_err = "?"
+        for _ in range(3):  # 模型偶发空/截断响应，重试
+            try:
+                data = self.llm.complete_json(
+                    prompts.ACT_SYSTEM_PROMPT, user,
+                    thinking=bool(opts["thinking"]), max_tokens=max(800, int(opts["max_tokens"])), temperature=0.0,
+                )
+                return action_from_dict(data, default_reason="llm-act")
+            except Exception as exc:  # noqa: BLE001
+                last_err = str(exc)
+        log.warning("LLM act 重试后仍失败：%s", last_err)
+        return Action(kind="wait", reason=f"act error: {last_err}")
 
     # ---- 视觉兜底 ---- #
     def recover_vision(self, obs: Observation, image: Any, plan: Plan, step: Step, step_idx: int) -> Action:

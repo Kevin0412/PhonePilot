@@ -100,6 +100,35 @@ def _stamp() -> str:
     return _dt.datetime.now().strftime("%H%M%S_%f")[:-3]
 
 
+def _focus_input(executor, obs, target_markers, profile, *, point=None) -> tuple[int, int]:
+    """聚焦输入框，分层兜底：
+    1) UIAutomator 真识别 EditText（标准 app 可靠；QQ/微信自绘拿不到）
+    2) OCR 占位符文字（target_markers）
+    3) LLM 给的坐标 point
+    4) 位置兜底：底部输入栏
+    """
+    from ..perception import uia
+
+    xy: Optional[tuple[int, int]] = None
+    try:
+        xy = uia.input_center(executor.ui_dump())
+    except Exception:  # noqa: BLE001
+        xy = None
+    if xy is None and target_markers:
+        hit = find_candidate(obs.elements, target_markers, reject_markers=profile.forbidden_markers)
+        if hit:
+            xy = hit[1].center
+    if xy is None and point:
+        try:
+            xy = validate_point(point, (obs.image_w, obs.image_h))
+        except SafetyError:
+            xy = None
+    if xy is None:
+        xy = (int(obs.image_w * 0.40), int(obs.image_h * 0.93))
+    executor.tap(*xy)
+    return xy
+
+
 def manual_stop(executor, obs: Optional[Observation], reason: str, *, run_dir: Optional[Path], image: Any = None) -> int:
     log.warning("⏸ 停下交人工：%s", reason)
     try:
@@ -291,11 +320,9 @@ def run_agent(
                 return DONE
             if not gate.approve(Action(kind="text", text=step.input_text), step.input_text):
                 return manual_stop(executor, obs, "文本输入被拒绝", run_dir=run_dir, image=image)
-            if step.target_markers:
-                hit = find_candidate(obs.elements, step.target_markers, reject_markers=profile.forbidden_markers)
-                if hit:
-                    executor.tap(*hit[1].center)  # 聚焦输入框
-                    time.sleep(0.4)
+            executor.prepare_input()  # 先就绪输入法，再聚焦（顺序关键，否则切换输入法会丢焦点）
+            _focus_input(executor, obs, step.target_markers, profile)
+            time.sleep(0.6)
             try:
                 executor.text(step.input_text)
                 log.info("⌨ 输入文字：%r", step.input_text)
@@ -304,7 +331,7 @@ def run_agent(
             typed_step_idx = step_idx
             budget.tick()
             last_sig = ""
-            time.sleep(loop.after_click_delay)
+            time.sleep(max(loop.after_click_delay, 1.2))  # 等搜索结果/界面刷新出来，避免下一步过早滚动
             continue
 
         # 3) 本地规则决策
@@ -445,4 +472,144 @@ def run_agent(
         no_change = 0
         last_sig = ""
         stuck_frames = 0
+        time.sleep(loop.after_click_delay)
+
+
+def run_llm_agent(
+    task: str,
+    *,
+    executor,
+    ocr,
+    planner,
+    gate,
+    profile: Profile,
+    budget: Budget,
+    loop: LoopConfig,
+    icons=None,
+    run_dir: Optional[Path] = None,
+    dry_run: bool = False,
+    mode: str = "fast",
+) -> int:
+    """逐步 LLM 驱动模式：每个动作都把当前屏幕(OCR+坐标)交给 LLM 决策，更灵活。
+
+    安全/风险/硬停与 hybrid 模式一致：发送等高风险仍需确认，命中支付/验证码硬停。
+    失败的 LLM 调用不计入动作预算（只计真正执行的动作），但连续失败到上限会停。
+    """
+    history: list[str] = []
+    no_change = 0
+    consec_fail = 0
+    while True:
+        exc = budget.exceeded()
+        if exc:
+            return manual_stop(executor, None, f"预算耗尽：{exc}", run_dir=run_dir)
+
+        image, obs = observe(executor, ocr, icons, with_foreground=True)
+        m = contains(obs.elements, profile.hard_stop_markers)
+        if m:
+            return manual_stop(executor, obs, f"命中硬停止标志：{m}", run_dir=run_dir, image=image)
+
+        action = planner.act(task, obs, history, mode=mode)
+        log.info(
+            "LLM决策: %s index=%s text=%r point=%s dir=%s | 原因=%s",
+            action.kind, action.index, action.text, action.point, action.direction, action.reason,
+        )
+
+        if action.kind == "wait":  # 含 LLM 失败降级——不计预算，但连续失败到上限就停
+            consec_fail += 1
+            if consec_fail > 8:
+                return manual_stop(executor, obs, "LLM 连续多次无有效决策", run_dir=run_dir, image=image)
+            time.sleep(loop.poll_interval)
+            continue
+        consec_fail = 0
+
+        if action.kind == "done":
+            log.info("✅ 任务完成：%s", task)
+            _save_audit(run_dir, f"{_stamp()}_DONE", image, obs, {"task": task})
+            return DONE
+        if action.kind == "stop":
+            return manual_stop(executor, obs, f"agent 停止：{action.reason}", run_dir=run_dir, image=image)
+
+        budget.tick()  # 只对真正执行的动作计预算
+        if dry_run:
+            log.info("[dry-run] 预览下一步：%s %s | 原因=%s", action.kind, action.text or action.direction, action.reason)
+            return DONE
+
+        # 命令直达/启动（能靠指令就不点）
+        if action.kind in ("launch", "intent"):
+            try:
+                if action.kind == "launch":
+                    executor.launch_app(action.text)
+                    desc = f"launch {action.text}"
+                else:
+                    executor.start_intent(action.text)
+                    desc = f"intent {action.text}"
+                log.info("▶ 执行：%s", desc)
+            except Exception as e:  # noqa: BLE001
+                history.append(f"命令失败({e})")
+                time.sleep(loop.poll_interval)
+                continue
+            wait_for_change(executor, image, timeout=loop.transition_timeout, threshold=loop.transition_threshold)
+            history.append(f"{desc} -> 已执行（{action.reason}）")
+            no_change = 0
+            time.sleep(loop.after_click_delay)
+            continue
+
+        # 解析执行参数 + 安全 + RiskGate（与 hybrid 一致）
+        point: Optional[tuple[int, int]] = None
+        target_text = ""
+        if action.uses_index:
+            try:
+                target = validate_action(action, obs.elements, profile.forbidden_markers)
+            except SafetyError as e:
+                history.append(f"{action.kind} index={action.index} 非法({e})")
+                time.sleep(loop.poll_interval)
+                continue
+            if gate.is_forbidden(target.text):
+                return manual_stop(executor, obs, f"目标在黑名单：{target.text}", run_dir=run_dir, image=image)
+            point, target_text = target.center, target.text
+            if not gate.approve(action, target_text):
+                return manual_stop(executor, obs, f"动作被拒绝：{target_text}", run_dir=run_dir, image=image)
+        elif action.kind in ("tap", "long_press") and action.point:
+            try:
+                point = validate_point(action.point, (obs.image_w, obs.image_h))
+            except SafetyError as e:
+                history.append(f"坐标无效({e})")
+                time.sleep(loop.poll_interval)
+                continue
+            target_text = f"坐标{point}"
+            if not gate.approve(action, target_text, is_coordinate=True):
+                return manual_stop(executor, obs, "坐标点击被拒绝", run_dir=run_dir, image=image)
+        elif action.kind == "text":
+            if not gate.approve(action, action.text):
+                return manual_stop(executor, obs, "文本输入被拒绝", run_dir=run_dir, image=image)
+            executor.prepare_input()
+            _focus_input(executor, obs, [], profile, point=action.point)
+            time.sleep(0.6)
+        else:
+            if action.kind in ("scroll", "fling", "swipe", "drag"):
+                if not budget.scroll_ok():
+                    return manual_stop(executor, obs, "滚动次数超预算", run_dir=run_dir, image=image)
+                budget.scrolls += 1
+
+        _save_audit(run_dir, f"{_stamp()}_act", image, obs,
+                    {"mode": "llm", "kind": action.kind, "target": target_text, "reason": action.reason})
+        try:
+            desc = execute_action(executor, action, point=point, image_wh=(obs.image_w, obs.image_h))
+        except SafetyError as e:
+            history.append(f"执行失败({e})")
+            time.sleep(loop.poll_interval)
+            continue
+        log.info("▶ 执行：%s", desc)
+
+        changed = None if action.is_nav_gesture else wait_for_change(
+            executor, image, timeout=loop.transition_timeout, threshold=loop.transition_threshold
+        )
+        chg = "变化" if (action.is_nav_gesture or changed is not None) else "无变化"
+        history.append(f"{desc} {target_text} -> {chg}（{action.reason}）")
+        if chg == "无变化" and not action.is_nav_gesture:
+            no_change += 1
+            if no_change > budget.max_no_change_retries + 2:
+                return manual_stop(executor, obs, "连续多次操作无变化", run_dir=run_dir, image=image)
+        else:
+            no_change = 0
         time.sleep(loop.after_click_delay)

@@ -26,7 +26,7 @@ DEFAULTS: dict[str, Any] = {
         "kind": "mock",
         "fast": {"thinking": False, "max_tokens": 160, "temperature": 0.0},
         "rich": {"thinking": True, "max_tokens": 512, "temperature": 0.0},
-        "deepseek": {"model": "deepseek-v4-flash", "base_url": "https://api.deepseek.com", "timeout": 8.0, "env_key": None},
+        "deepseek": {"model": "deepseek-v4-flash", "base_url": "https://api.deepseek.com", "timeout": 30.0, "env_key": None},
         "claude": {
             "model": "claude-sonnet-4-5",
             "base_url": "https://api.anthropic.com",

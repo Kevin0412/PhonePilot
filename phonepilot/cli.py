@@ -15,7 +15,7 @@ from pathlib import Path
 from typing import Any, Optional
 
 from .agent.budget import Budget
-from .agent.loop import LoopConfig, run_agent
+from .agent.loop import LoopConfig, run_agent, run_llm_agent
 from .agent.observe import observe
 from .config import dataclass_from, load_config
 from .logging_setup import setup_logging
@@ -196,19 +196,24 @@ def cmd_run(args, cfg: dict) -> int:
     loop = dataclass_from(LoopConfig, cfg["loop"])
     run_dir = _make_run_dir(cfg, enabled=not args.no_run_dir)
 
-    log.info("任务：%s", task)
+    log.info("任务：%s（模式=%s）", task, args.mode)
+    rc = 1
     try:
-        plan = planner.make_plan(task)
+        if args.mode == "llm":
+            rc = run_llm_agent(
+                task, executor=executor, ocr=ocr, planner=planner, gate=gate, profile=profile,
+                budget=budget, loop=loop, icons=icons, run_dir=run_dir, dry_run=args.dry_run,
+            )
+        else:
+            plan = planner.make_plan(task)
+            rc = run_agent(
+                plan, executor=executor, ocr=ocr, planner=planner, gate=gate, profile=profile,
+                budget=budget, loop=loop, icons=icons, vision_enabled=vision is not None,
+                run_dir=run_dir, dry_run=args.dry_run,
+            )
     except Exception as exc:  # noqa: BLE001
-        log.error("规划失败：%s", exc)
-        return 1
-
-    try:
-        rc = run_agent(
-            plan, executor=executor, ocr=ocr, planner=planner, gate=gate, profile=profile,
-            budget=budget, loop=loop, icons=icons, vision_enabled=vision is not None,
-            run_dir=run_dir, dry_run=args.dry_run,
-        )
+        log.error("执行失败：%s", exc)
+        rc = 1
     finally:
         try:
             executor.close()  # 恢复输入法等
@@ -351,6 +356,8 @@ def build_parser() -> argparse.ArgumentParser:
     pr = sub.add_parser("run", help="执行一个自然语言任务")
     _add_common(pr)
     pr.add_argument("--task", help="自然语言任务描述")
+    pr.add_argument("--mode", choices=["hybrid", "llm"], default="hybrid",
+                    help="hybrid=计划+本地规则+卡住升级(快/省)；llm=每步都让LLM看屏决策(灵活/费)")
     _add_llm_args(pr)
     pr.add_argument("--plan-file", help="mock LLM 时的计划 YAML/JSON")
     pr.add_argument("--vision", dest="vision", action="store_true", default=None, help="启用视觉兜底")

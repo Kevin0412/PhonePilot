@@ -70,6 +70,8 @@ ACTION_KINDS: frozenset[str] = frozenset(
         "home",
         "text",
         "key",
+        "launch",   # 命令启动 app（text=包名）
+        "intent",   # 命令直达系统页（text=intent action）
         "wait",
         "done",
         "stop",
