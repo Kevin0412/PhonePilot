@@ -37,6 +37,9 @@ def http_post_json(
     prefix = u.path.rstrip("/") if u.path and u.path != "/" else ""
     full_path = prefix + path
     hdrs = {"Content-Type": "application/json", **headers}
+    for hk, hv in hdrs.items():  # 提前给出清晰错误，而不是 http.client 的 latin-1 崩溃
+        if not str(hv).isascii():
+            raise RuntimeError(f"请求头 {hk} 含非 ASCII 字符（多半是 .env 里的 API key 没填对）")
     last_error: Exception | None = None
     for _ in range(max(1, retries)):
         conn = None

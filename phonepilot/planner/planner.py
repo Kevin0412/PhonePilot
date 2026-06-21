@@ -204,6 +204,27 @@ class Planner:
         log.warning("LLM act 重试后仍失败：%s", last_err)
         return Action(kind="wait", reason=f"act error: {last_err}")
 
+    # ---- 视觉定位控件（图像识别框控件）：返回归一化坐标 ---- #
+    def locate(self, image: Any, what: str) -> Optional[tuple[float, float]]:
+        if self.vision is None:
+            return None
+        try:
+            data = self.vision.decide_json(
+                prompts.LOCATE_SYSTEM_PROMPT,
+                f"定位控件：{what}。返回其中心归一化坐标 {{\"point\":[x,y]}}",
+                image, max_tokens=600,
+            )
+        except Exception as exc:  # noqa: BLE001
+            log.warning("视觉定位失败：%s", exc)
+            return None
+        p = data.get("point")
+        if isinstance(p, (list, tuple)) and len(p) >= 2:
+            try:
+                return (float(p[0]), float(p[1]))
+            except (TypeError, ValueError):
+                return None
+        return None
+
     # ---- 视觉兜底 ---- #
     def recover_vision(self, obs: Observation, image: Any, plan: Plan, step: Step, step_idx: int) -> Action:
         if self.vision is None:

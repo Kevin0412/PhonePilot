@@ -46,7 +46,7 @@ DEFAULTS: dict[str, Any] = {
     },
     "vision": {
         "enabled": False,
-        "provider": "qwen",
+        "provider": "mimo",   # mimo-v2.5 实测可定位控件；qwen/glm 需自备 key
         "base_url": None,
         "model": None,
         "timeout": 30.0,
@@ -97,14 +97,10 @@ def _deep_merge(base: dict, over: Optional[dict]) -> dict:
 
 
 def _load_dotenv() -> None:
-    """把 .env 注入 os.environ（优先 python-dotenv，否则手动解析）。已存在的环境变量不覆盖。"""
-    try:
-        from dotenv import load_dotenv  # type: ignore
+    """把 .env 注入 os.environ（手动解析，已存在的环境变量不覆盖）。
 
-        load_dotenv()
-        return
-    except Exception:  # pragma: no cover - 无 dotenv 时走手动解析
-        pass
+    不走 python-dotenv：部分版本会把行内注释当成值（见 .env.example 的坑），这里自己解析更可控。
+    """
     env_path = Path(".env")
     if not env_path.exists():
         return
@@ -113,7 +109,11 @@ def _load_dotenv() -> None:
         if not line or line.startswith("#") or "=" not in line:
             continue
         key, _, val = line.partition("=")
-        key, val = key.strip(), val.strip()
+        key = key.strip()
+        # 去掉行内注释（空格+#…），避免把示例注释当成 key 值
+        val = val.split(" #", 1)[0].strip().strip("'\"")
+        if val.startswith("#"):
+            val = ""
         if key and val and key not in os.environ:
             os.environ[key] = val
 

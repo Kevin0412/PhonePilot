@@ -19,7 +19,7 @@ VISION_PRESETS: dict[str, tuple[Optional[str], str, str]] = {
     "qwen": ("https://dashscope.aliyuncs.com/compatible-mode/v1", "qwen-vl-max", "DASHSCOPE_API_KEY"),
     "glm": ("https://open.bigmodel.cn/api/paas/v4", "glm-4v-plus", "GLM_API_KEY"),
     "kimi": ("https://api.moonshot.cn/v1", "moonshot-v1-8k-vision-preview", "MOONSHOT_API_KEY"),
-    "mimo": (None, "mimo-vl", "MIMO_API_KEY"),  # 端点待核对
+    "mimo": ("https://token-plan-cn.xiaomimimo.com/v1", "mimo-v2.5", "MIMO_API_KEY"),
 }
 
 

@@ -92,6 +92,9 @@ ACT_SYSTEM_PROMPT = """你是手机 GUI 自动化 agent。给你总任务、当�
 {"action":"tap","index":3,"text":"王信","point":null,"direction":"","input":"","risk":"low","reason":"简短原因"}
 """
 
+LOCATE_SYSTEM_PROMPT = """你是手机 UI 控件定位器。看截图，返回用户所问控件中心的归一化坐标
+（左上 0,0、右下 1,1）。只输出一个 JSON，不要解释：{"point":[x,y]}。找不到就返回 {"point":null}。"""
+
 # 含独有短语「看截图」——用于 Mock 路由识别。
 VISION_SYSTEM_PROMPT = """你是手机自动化 agent 的视觉决策器。本机 OCR 已无法理解当前屏幕（可能是图标、图片或复杂布局），
 现在请你直接【看截图】决定下一步，并给出要操作位置的【归一化坐标】（左上角 0,0，右下角 1,1）。

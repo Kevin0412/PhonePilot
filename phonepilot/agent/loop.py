@@ -100,12 +100,15 @@ def _stamp() -> str:
     return _dt.datetime.now().strftime("%H%M%S_%f")[:-3]
 
 
-def _focus_input(executor, obs, target_markers, profile, *, point=None) -> tuple[int, int]:
-    """聚焦输入框，分层兜底：
-    1) UIAutomator 真识别 EditText（标准 app 可靠；QQ/微信自绘拿不到）
+def _focus_input(executor, obs, target_markers, profile, *, planner=None, image=None, point=None) -> tuple[int, int]:
+    """聚焦输入框，按「精确且便宜」优先分层（VL 仅最后兜底，不做首选）：
+    1) UIAutomator 真识别 EditText —— 语义+精确，标准 app 最佳（QQ/微信自绘拿不到）
     2) OCR 占位符文字（target_markers）
-    3) LLM 给的坐标 point
-    4) 位置兜底：底部输入栏
+    3) LLM 在 act 里给的坐标 point
+    4) 位置兜底：底部输入栏（聊天类输入框近白无对比，CV 也框不出；底部位置已足够准）
+    5) 视觉模型定位（planner.locate）—— 仅当以上都没有时的最后兜底（慢/近似）
+    说明：传统 CV 对「有对比的控件」(彩色按钮/有边框/图标) 更准，应优先于 VL；
+    但 QQ 空输入框是白底白框、无边可框，故这里用位置启发式而非 CV/VL。
     """
     from ..perception import uia
 
@@ -321,7 +324,7 @@ def run_agent(
             if not gate.approve(Action(kind="text", text=step.input_text), step.input_text):
                 return manual_stop(executor, obs, "文本输入被拒绝", run_dir=run_dir, image=image)
             executor.prepare_input()  # 先就绪输入法，再聚焦（顺序关键，否则切换输入法会丢焦点）
-            _focus_input(executor, obs, step.target_markers, profile)
+            _focus_input(executor, obs, step.target_markers, profile, planner=planner, image=image)
             time.sleep(0.6)
             try:
                 executor.text(step.input_text)
@@ -583,7 +586,7 @@ def run_llm_agent(
             if not gate.approve(action, action.text):
                 return manual_stop(executor, obs, "文本输入被拒绝", run_dir=run_dir, image=image)
             executor.prepare_input()
-            _focus_input(executor, obs, [], profile, point=action.point)
+            _focus_input(executor, obs, [], profile, planner=planner, image=image, point=action.point)
             time.sleep(0.6)
         else:
             if action.kind in ("scroll", "fling", "swipe", "drag"):
