@@ -37,16 +37,20 @@ def caption_controls(
     import cv2
     import numpy as np
 
+    h_img, w_img = image.shape[:2]
+    min_area = w_img * h_img * 0.0005  # 太小的框跳过（状态栏图标等）
     unlabeled = [(i, e) for i, e in enumerate(elements)
-                 if e.text in ("[控件]", "") and e.kind in ("ui", "control")]
+                 if e.text in ("[控件]", "") and e.kind in ("ui", "control")
+                 and (e.bounds[2] - e.bounds[0]) * (e.bounds[3] - e.bounds[1]) > min_area]
     if not unlabeled:
         return elements
+    if len(unlabeled) > 15:
+        unlabeled = unlabeled[:15]  # VL token 有限，最多标 15 个
 
     api_key = os.environ.get(env_key, "")
     if not api_key:
         return elements
 
-    h, w = image.shape[:2]
     vis = image.copy()
     idx_map: dict[int, int] = {}  # 画框编号 → elements 下标
     for draw_idx, (elem_idx, e) in enumerate(unlabeled):
@@ -56,8 +60,8 @@ def caption_controls(
                     cv2.FONT_HERSHEY_SIMPLEX, 1.5, (0, 0, 255), 3)
         idx_map[draw_idx] = elem_idx
 
-    scale = max_long_side / max(h, w)
-    small = cv2.resize(vis, (int(w * scale), int(h * scale)))
+    scale = max_long_side / max(h_img, w_img)
+    small = cv2.resize(vis, (int(w_img * scale), int(h_img * scale)))
     _, buf = cv2.imencode(".jpg", small, [cv2.IMWRITE_JPEG_QUALITY, 75])
     b64 = base64.b64encode(buf).decode()
 
