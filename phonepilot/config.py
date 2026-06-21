@@ -21,7 +21,7 @@ except Exception:  # pragma: no cover
 DEFAULTS: dict[str, Any] = {
     "executor": {"kind": "mock", "serial": None, "adb_path": "adb", "mock_frames_dir": "examples/mock_frames"},
     "ocr": {"kind": "rapidocr", "min_score": 0.55, "use_cuda": False, "scale": 1.0},
-    "icons": {"enabled": False, "template_dir": "phonepilot/perception/assets/icons"},
+    "icons": {"enabled": True, "template_dir": "phonepilot/perception/assets/icons"},
     # 多源感知融合：把 OCR + CV画框 + 控件树 打包给 LLM（LLM 选 index，坐标来自包围盒，不靠 VL）
     "perception": {"cv": True, "ui": False},
     "llm": {

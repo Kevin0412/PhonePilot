@@ -23,7 +23,9 @@ log = logging.getLogger(__name__)
 
 
 class TemplateIconMatcher(IconMatcher):
-    def __init__(self, template_dir: str | Path, *, threshold: float = 0.82) -> None:
+    SCALES = (0.6, 0.75, 0.9, 1.0, 1.1, 1.25, 1.4)
+
+    def __init__(self, template_dir: str | Path, *, threshold: float = 0.72) -> None:
         self.template_dir = Path(template_dir)
         self.threshold = threshold
         self._templates: list[tuple[str, Any]] | None = None  # 懒加载
@@ -49,35 +51,29 @@ class TemplateIconMatcher(IconMatcher):
         return templates
 
     def match(self, image: Any) -> list[ScreenElement]:
+        """多尺度模板匹配：每个图标取跨尺度的全局最佳命中（图标一般只出现一次），
+        多尺度让模板能跨分辨率/设备适配，不至于因缩放就匹配不上。"""
         templates = self._load()
         if not templates:
             return []
         import cv2  # 懒加载
-        import numpy as np
 
         gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+        gh, gw = gray.shape[:2]
         elements: list[ScreenElement] = []
         for name, tmpl in templates:
-            th, tw = tmpl.shape[:2]
-            if gray.shape[0] < th or gray.shape[1] < tw:
-                continue
-            res = cv2.matchTemplate(gray, tmpl, cv2.TM_CCOEFF_NORMED)
-            loc = np.where(res >= self.threshold)
-            seen: list[tuple[int, int]] = []
-            for y, x in zip(*loc):
-                # 简单去重：避免同一图标的相邻多次命中
-                if any(abs(x - sx) < tw and abs(y - sy) < th for sx, sy in seen):
+            best = None  # (score, x, y, tw, th)
+            for s in self.SCALES:
+                t = cv2.resize(tmpl, None, fx=s, fy=s) if s != 1.0 else tmpl
+                th, tw = t.shape[:2]
+                if th >= gh or tw >= gw or th < 8 or tw < 8:
                     continue
-                seen.append((int(x), int(y)))
-                box = ((int(x), int(y)), (int(x + tw), int(y)),
-                       (int(x + tw), int(y + th)), (int(x), int(y + th)))
-                elements.append(
-                    ScreenElement(
-                        text=f"[icon:{name}]",
-                        score=float(res[y, x]),
-                        box=box,
-                        style="normal",
-                        kind="icon",
-                    )
-                )
+                res = cv2.matchTemplate(gray, t, cv2.TM_CCOEFF_NORMED)
+                _minv, maxv, _minl, maxl = cv2.minMaxLoc(res)
+                if best is None or maxv > best[0]:
+                    best = (float(maxv), int(maxl[0]), int(maxl[1]), tw, th)
+            if best and best[0] >= self.threshold:
+                sc, x, y, tw, th = best
+                box = ((x, y), (x + tw, y), (x + tw, y + th), (x, y + th))
+                elements.append(ScreenElement(text=f"[icon:{name}]", score=sc, box=box, style="normal", kind="icon"))
         return elements
