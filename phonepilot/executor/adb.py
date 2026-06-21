@@ -109,6 +109,8 @@ class AdbExecutor(Executor):
         if self._orig_ime is None:
             cur = self._shell("settings", "get", "secure", "default_input_method", timeout=5).strip()
             self._orig_ime = cur or "__none__"
+            # ADBKeyboard 可能被系统/厂商置为 disabled（enabled=0），先启用包，否则 ime/广播都无效
+            self._shell("pm", "enable", _ADBKB_PKG, timeout=5)
             self._shell("ime", "enable", _ADBKB_IME, timeout=5)
             self._shell("ime", "set", _ADBKB_IME, timeout=5)
             time.sleep(0.5)
