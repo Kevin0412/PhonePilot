@@ -38,6 +38,7 @@ class DeepSeekClient(LLMClient):
         thinking: bool = False,
         max_tokens: int = 512,
         temperature: float = 0.0,
+        image=None,
     ) -> dict:
         payload = {
             "model": self.model,

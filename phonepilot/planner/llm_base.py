@@ -114,6 +114,8 @@ def extract_json(raw: str) -> dict:
 class LLMClient(abc.ABC):
     """文本 LLM：输入 system/user，返回解析后的 JSON dict。"""
 
+    multimodal: bool = False  # 子类设为 True 表示 complete_json 支持 image 参数
+
     @abc.abstractmethod
     def complete_json(
         self,
@@ -123,6 +125,7 @@ class LLMClient(abc.ABC):
         thinking: bool = False,
         max_tokens: int = 512,
         temperature: float = 0.0,
+        image: Any = None,
     ) -> dict:
         raise NotImplementedError
 

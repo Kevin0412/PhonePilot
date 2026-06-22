@@ -32,6 +32,7 @@ class MockLLMClient(LLMClient):
         thinking: bool = False,
         max_tokens: int = 512,
         temperature: float = 0.0,
+        image=None,
     ) -> dict:
         is_plan = "任务拆解" in system
         self.calls.append(("plan" if is_plan else "decide", user))

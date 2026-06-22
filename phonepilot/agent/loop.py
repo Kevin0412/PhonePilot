@@ -554,7 +554,7 @@ def run_llm_agent(
         if m:
             return manual_stop(executor, obs, f"命中硬停止标志：{m}", run_dir=run_dir, image=image)
 
-        action = planner.act(task, obs, history, mode=mode)
+        action = planner.act(task, obs, history, mode=mode, image=image)
         log.info(
             "LLM决策: %s index=%s text=%r point=%s dir=%s | 原因=%s",
             action.kind, action.index, action.text, action.point, action.direction, action.reason,

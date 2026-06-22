@@ -176,7 +176,7 @@ class Planner:
         return action_from_dict(data, default_reason=f"{mode}-llm")
 
     # ---- 逐步 LLM 驱动：每个动作都看当前屏幕决策（ReAct GUI agent） ---- #
-    def act(self, task: str, obs: Observation, history: list[str], *, mode: str = "fast") -> Action:
+    def act(self, task: str, obs: Observation, history: list[str], *, mode: str = "fast", image=None) -> Action:
         # 默认用紧凑的「文字+坐标」上下文（比逐元素 JSON 小很多，更不易触发空/超时响应）
         screen = (
             context.format_rich(obs.elements, obs.image_w, obs.image_h)
@@ -197,6 +197,7 @@ class Planner:
                 data = self.llm.complete_json(
                     prompts.ACT_SYSTEM_PROMPT, user,
                     thinking=bool(opts["thinking"]), max_tokens=max(800, int(opts["max_tokens"])), temperature=0.0,
+                    image=image,
                 )
                 return action_from_dict(data, default_reason="llm-act")
             except Exception as exc:  # noqa: BLE001

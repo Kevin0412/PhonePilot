@@ -13,6 +13,8 @@ from __future__ import annotations
 import os
 from typing import Optional
 
+from typing import Any
+
 from .llm_base import LLMClient, extract_json, http_post_json
 
 # provider -> (base_url, default_model, env_key)
@@ -44,6 +46,8 @@ class OpenAICompatClient(LLMClient):
         self.api_key = api_key or (os.environ.get(resolved_env) if resolved_env else None)
         self.timeout = timeout
         self.json_mode = json_mode
+        # MiMo-v2.5 是多模态的——act 时附截图作为视觉上下文（LLM 仍通过 index 选元素，不直接输出坐标）
+        self.multimodal = provider == "mimo"
         if not self.base_url:
             raise RuntimeError(f"OpenAI 兼容 provider={provider} 缺少 base_url（配置 llm.openai.base_url）")
         if not self.model:
@@ -59,12 +63,29 @@ class OpenAICompatClient(LLMClient):
         thinking: bool = False,
         max_tokens: int = 512,
         temperature: float = 0.0,
+        image: Any = None,
     ) -> dict:
+        # 多模态：文字元素列表（间接路径）+ 截图（视觉上下文），LLM 仍通过 index 选元素
+        if image is not None and self.multimodal:
+            import base64
+            import cv2
+
+            scale = 960 / max(image.shape[:2])
+            small = cv2.resize(image, (int(image.shape[1] * scale), int(image.shape[0] * scale)))
+            _, buf = cv2.imencode(".jpg", small, [cv2.IMWRITE_JPEG_QUALITY, 70])
+            b64 = base64.b64encode(buf).decode()
+            user_content = [
+                {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{b64}"}},
+                {"type": "text", "text": user},
+            ]
+        else:
+            user_content = user
+
         payload = {
             "model": self.model,
             "messages": [
                 {"role": "system", "content": system},
-                {"role": "user", "content": user},
+                {"role": "user", "content": user_content},
             ],
             "temperature": temperature,
             "max_tokens": max_tokens,
