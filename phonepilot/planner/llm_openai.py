@@ -91,6 +91,8 @@ class OpenAICompatClient(LLMClient):
             "max_tokens": max_tokens,
             "stream": False,
         }
+        if not thinking:
+            payload["thinking"] = {"type": "disabled"}
         if self.json_mode:
             payload["response_format"] = {"type": "json_object"}
         headers = {"Authorization": f"Bearer {self.api_key}"}
