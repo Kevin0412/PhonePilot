@@ -134,6 +134,8 @@ class AdbExecutor(Executor):
             self._ensure_adbkb()
             msg = value.replace("\\", "\\\\").replace("'", "'\\''")
             self._run("shell", f"am broadcast -a ADB_INPUT_TEXT --es msg '{msg}'", timeout=8)
+            # 输入完立刻恢复原输入法——不让 ADBKeyboard 停留影响用户手动操作
+            self._restore_ime()
         else:
             self._shell("input", "text", _escape_text(value), timeout=8)
 
@@ -247,8 +249,8 @@ class AdbExecutor(Executor):
             log.debug("uiautomator dump 失败：%s", exc)
             return ""
 
-    def close(self) -> None:
-        # 恢复用户原来的输入法（之前为中文输入切到了 ADBKeyboard）
+    def _restore_ime(self) -> None:
+        """恢复用户原来的输入法（用完 ADBKeyboard 立刻还回来）。"""
         if self._orig_ime and self._orig_ime != "__none__":
             try:
                 self._shell("ime", "set", self._orig_ime, timeout=5)
@@ -262,3 +264,6 @@ class AdbExecutor(Executor):
                 pass
         self._orig_ime = None
         self._orig_show_ime = None
+
+    def close(self) -> None:
+        self._restore_ime()
