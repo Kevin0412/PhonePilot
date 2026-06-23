@@ -197,6 +197,9 @@ def cmd_run(args, cfg: dict) -> int:
         return 1
 
     _apply_llm_overrides(cfg, args)
+    from .privacy import PrivacyGuard
+    privacy = PrivacyGuard.from_config(cfg)
+
     executor = build_executor(cfg, mock_frames=mock_frames)
     ocr = build_ocr(cfg, executor)
     icons = build_icons(cfg)
@@ -224,7 +227,7 @@ def cmd_run(args, cfg: dict) -> int:
         if args.mode == "llm":
             rc = run_llm_agent(
                 task, executor=executor, ocr=ocr, planner=planner, gate=gate, profile=profile,
-                budget=budget, loop=loop, icons=icons, ui_detect=ui_detect,
+                budget=budget, loop=loop, icons=icons, ui_detect=ui_detect, privacy=privacy,
                 with_cv=with_cv, with_ui=with_ui,
                 run_dir=run_dir, dry_run=args.dry_run,
             )

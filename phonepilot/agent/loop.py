@@ -512,6 +512,7 @@ def run_llm_agent(
     loop: LoopConfig,
     icons=None,
     ui_detect=None,
+    privacy=None,
     with_cv: bool = False,
     with_ui: bool = False,
     run_dir: Optional[Path] = None,
@@ -543,6 +544,21 @@ def run_llm_agent(
         m = contains(obs.elements, profile.hard_stop_markers)
         if m:
             return manual_stop(executor, obs, f"命中硬停止标志：{m}", run_dir=run_dir, image=image)
+
+        # 隐私保护：检查前台是否进入了敏感 app/页面
+        if privacy is not None:
+            block_reason = privacy.check_foreground(obs.foreground or "")
+            if block_reason:
+                executor.back()
+                log.warning("🔒 %s", block_reason)
+                history.append(f"🔒 {block_reason}，已自动返回")
+                time.sleep(loop.after_click_delay)
+                continue
+            # 脱敏：发给 LLM 前遮盖敏感信息
+            obs = Observation(image_w=obs.image_w, image_h=obs.image_h,
+                              elements=privacy.redact_elements(obs.elements),
+                              signature=obs.signature, foreground=obs.foreground)
+            image = privacy.redact_image(image, obs.elements)
 
         action = planner.act(task, obs, history, mode=mode, image=image)
         log.info(
@@ -649,6 +665,14 @@ def run_llm_agent(
                 wait_for_change(executor, image, timeout=loop.transition_timeout, threshold=loop.transition_threshold)
                 time.sleep(loop.after_click_delay)
                 continue
+            # 隐私保护：launch 前检查包名
+            if privacy is not None and action.kind == "launch":
+                block = privacy.check_launch(action.text or "")
+                if block:
+                    log.warning("🔒 %s", block)
+                    history.append(f"🔒 {block}")
+                    time.sleep(loop.poll_interval)
+                    continue
             try:
                 if action.kind == "launch":
                     executor.launch_app(action.text)

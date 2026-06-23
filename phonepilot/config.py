@@ -58,6 +58,12 @@ DEFAULTS: dict[str, Any] = {
         "confirm_taps": True,
         "max_calls": 4,
     },
+    "privacy": {
+        "enabled": True,
+        # 默认黑名单见 privacy.py；这里可追加
+        "blocked_packages": [],
+        "blocked_keywords": [],
+    },
     "risk": {
         "auto_confirm_low": True,
         "auto_confirm_medium": False,
