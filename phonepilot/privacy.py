@@ -142,10 +142,13 @@ class PrivacyGuard:
     @classmethod
     def from_config(cls, cfg: dict) -> "PrivacyGuard":
         pc = cfg.get("privacy", {})
+        # config 里的列表是追加到默认值，不是替换（空列表不覆盖默认黑名单）
+        extra_pkgs = tuple(pc.get("blocked_packages") or ())
+        extra_kws = tuple(pc.get("blocked_keywords") or ())
         return cls(
             enabled=pc.get("enabled", True),
-            blocked_packages=tuple(pc.get("blocked_packages", _DEF_BLOCKED_PACKAGES)),
-            blocked_keywords=tuple(pc.get("blocked_keywords", _DEF_BLOCKED_KEYWORDS)),
-            blocked_activities=tuple(pc.get("blocked_activities", _DEF_BLOCKED_ACTIVITIES)),
-            redact_patterns=tuple(pc.get("redact_patterns", _DEF_REDACT_PATTERNS)),
+            blocked_packages=_DEF_BLOCKED_PACKAGES + extra_pkgs,
+            blocked_keywords=_DEF_BLOCKED_KEYWORDS + extra_kws,
+            blocked_activities=tuple(pc.get("blocked_activities") or _DEF_BLOCKED_ACTIVITIES),
+            redact_patterns=tuple(pc.get("redact_patterns") or _DEF_REDACT_PATTERNS),
         )
