@@ -73,6 +73,7 @@ ACTION_KINDS: frozenset[str] = frozenset(
         "launch",   # 命令启动 app（text=包名）
         "intent",   # 命令直达系统页（text=intent action）
         "wait",
+        "collect",  # 收集当前屏幕信息（reason 写摘要），用于信息提取任务
         "done",
         "stop",
     }

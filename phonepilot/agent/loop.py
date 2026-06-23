@@ -572,7 +572,7 @@ def run_llm_agent(
             _action_window.pop(0)
 
         _is_loop = False
-        if _repeat_count >= 3 and action.kind not in ("done", "stop", "wait"):
+        if _repeat_count >= 3 and action.kind not in ("done", "stop", "wait", "collect"):
             hint = (f"⚠ 你已连续{_repeat_count}次执行相同动作({action.kind} {action.text!r})，"
                     f"说明这个操作无效。请换一种完全不同的思路")
             history.append(hint)
@@ -601,9 +601,21 @@ def run_llm_agent(
             return manual_stop(executor, obs, f"动作循环无法脱困：{_action_window[-4:]}",
                                run_dir=run_dir, image=image)
 
+        if action.kind == "collect":
+            log.info("📋 收集：%s", action.reason)
+            history.append(f"[已收集] {action.reason}")
+            # 自动 scroll 翻到下一屏继续收集
+            from .gestures import execute_action as _exec
+            _exec(executor, Action(kind="scroll", direction="down"), point=None, image_wh=(obs.image_w, obs.image_h))
+            time.sleep(1.0)
+            budget.tick()
+            continue
+
         if action.kind == "done":
+            if any("[已收集]" in h for h in history):
+                log.info("📋 总结：%s", action.reason)
             log.info("✅ 任务完成：%s", task)
-            _save_audit(run_dir, f"{_stamp()}_DONE", image, obs, {"task": task})
+            _save_audit(run_dir, f"{_stamp()}_DONE", image, obs, {"task": task, "summary": action.reason})
             return DONE
         if action.kind == "stop":
             return manual_stop(executor, obs, f"agent 停止：{action.reason}", run_dir=run_dir, image=image)
