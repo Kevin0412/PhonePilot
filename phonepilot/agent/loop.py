@@ -603,12 +603,15 @@ def run_llm_agent(
                                run_dir=run_dir, image=image)
 
         if action.kind == "collect":
+            _collect_count = sum(1 for h in history if h.startswith("[已收集]"))
             log.info("📋 收集：%s", action.reason)
             history.append(f"[已收集] {action.reason}")
-            # 自动 scroll 翻到下一屏继续收集
-            from .gestures import execute_action as _exec
-            _exec(executor, Action(kind="scroll", direction="down"), point=None, image_wh=(obs.image_w, obs.image_h))
-            time.sleep(1.0)
+            if _collect_count >= 8:
+                history.append("⚠ 已收集足够多内容，请立刻用 done 输出总结，不要再 collect")
+            else:
+                from .gestures import execute_action as _exec
+                _exec(executor, Action(kind="scroll", direction="down"), point=None, image_wh=(obs.image_w, obs.image_h))
+                time.sleep(1.0)
             budget.tick()
             continue
 
