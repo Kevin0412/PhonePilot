@@ -525,13 +525,31 @@ def run_llm_agent(
     失败的 LLM 调用不计入动作预算（只计真正执行的动作），但连续失败到上限会停。
     """
     history: list[str] = []
+
+    # 记忆系统：加载持久化记忆 + 设备 app 列表
+    from ..memory import AgentMemory
+    memory = AgentMemory()
+    mem_ctx = memory.format_context()
+    if mem_ctx:
+        history.append(f"[记忆] {mem_ctx}")
+
+    if hasattr(executor, "list_apps"):
+        try:
+            apps = executor.list_apps()
+            if apps:
+                top = sorted(apps.items())[:40]
+                app_hint = "、".join(f"{p}" for p, _ in top)
+                history.append(f"[设备信息] 已安装 app({len(apps)} 个)，部分包名：{app_hint}")
+        except Exception:  # noqa: BLE001
+            pass
+
     no_change = 0
     consec_fail = 0
-    recovery_back = 0  # 连续「已在前台仍想重启 -> 改按返回回退」次数；做了正常动作就清零
-    _last_action_key = ""  # 语义重复检测：kind+text
+    recovery_back = 0
+    _last_action_key = ""
     _repeat_count = 0
-    _action_window: list[str] = []  # 最近 N 步的 action_key，检测交替循环
-    _last_caption_sig = ""  # 上次做 VL 标注的页面签名，避免同页重复调
+    _action_window: list[str] = []
+    _last_caption_sig = ""
     while True:
         exc = budget.exceeded()
         if exc:
@@ -681,6 +699,9 @@ def run_llm_agent(
                     executor.start_intent(action.text)
                     desc = f"intent {action.text}"
                 log.info("▶ 执行：%s", desc)
+                # 记忆：launch 成功时学习包名（从任务描述里提取 app 名）
+                if action.kind == "launch" and action.text:
+                    memory.learn_package(action.text.rsplit(".", 1)[-1], action.text)
             except Exception as e:  # noqa: BLE001
                 hint = f"命令失败({action.text})：包名不存在。"
                 # 尝试用 pm list 搜正确包名提示 LLM

@@ -55,6 +55,7 @@ class AdbExecutor(Executor):
         self._use_adbkb: Optional[bool] = None  # 懒检测 ADBKeyboard（中文输入）
         self._orig_ime: Optional[str] = None     # 切换前的输入法，close() 时恢复
         self._orig_show_ime: Optional[str] = None  # show_ime_with_hard_keyboard 原值
+        self._app_cache: Optional[dict[str, str]] = None  # 包名→app名 缓存
 
     # ---- 底层 ---- #
     def _run(self, *args: str, timeout: Optional[float] = None) -> subprocess.CompletedProcess:
@@ -253,6 +254,23 @@ class AdbExecutor(Executor):
         except Exception as exc:  # noqa: BLE001 - 控件树拿不到就回退其它聚焦方式
             log.debug("uiautomator dump 失败：%s", exc)
             return ""
+
+    def list_apps(self) -> dict[str, str]:
+        """返回设备上已安装的第三方 app {包名: app名}，带缓存。"""
+        if self._app_cache is not None:
+            return self._app_cache
+        apps: dict[str, str] = {}
+        try:
+            out = self._shell("pm", "list", "packages", "-3", timeout=15)
+            pkgs = [l.replace("package:", "").strip() for l in out.splitlines() if l.startswith("package:")]
+            # 用 dumpsys 取 app label 太慢，直接用包名最后一段做可读名
+            for p in pkgs:
+                name = p.rsplit(".", 1)[-1] if "." in p else p
+                apps[p] = name
+        except Exception as exc:  # noqa: BLE001
+            log.debug("list_apps 失败: %s", exc)
+        self._app_cache = apps
+        return apps
 
     def _restore_ime(self) -> None:
         """恢复用户原来的输入法（用完 ADBKeyboard 立刻还回来）。"""
