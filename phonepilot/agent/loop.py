@@ -578,7 +578,8 @@ def run_llm_agent(
             history.append(hint)
             log.info("重复动作警告：%s x%d", action_key, _repeat_count)
             _is_loop = _repeat_count >= 5
-        elif len(_action_window) >= 6 and len(set(_action_window[-6:])) <= 2:
+        elif (len(_action_window) >= 6 and len(set(_action_window[-6:])) <= 2
+              and not any("collect:" in a for a in _action_window[-6:])):
             cycle = "/".join(sorted(set(_action_window[-6:])))
             hint = (f"⚠ 你在两个动作间反复循环({cycle})，已循环{len(_action_window)//2}轮。"
                     f"这条路走不通，请换一种完全不同的方法——比如用 launch 命令、点其他控件、或 scroll")
