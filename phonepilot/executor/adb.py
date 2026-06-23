@@ -177,7 +177,9 @@ class AdbExecutor(Executor):
         launched = False
         if activity:
             try:
-                out = self._shell("am", "start", "-n", activity, timeout=10)
+                # CLEAR_TOP：如果 app 已在后台，清掉上面的 Activity 回到主页（避免热启动停在旧页面）
+                out = self._shell("am", "start", "-n", activity,
+                                  "--activity-clear-top", "--activity-single-top", timeout=10)
                 launched = "Error" not in out and "Exception" not in out
             except Exception as exc:  # noqa: BLE001
                 log.debug("am start %s 失败：%s", activity, exc)
