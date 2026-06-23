@@ -88,7 +88,7 @@ DEFAULTS: dict[str, Any] = {
         "max_rich_calls": 8,
         "max_vision_calls": 4,
         "max_no_change_retries": 2,
-        "max_scrolls": 6,
+        "max_scrolls": 12,
         "max_replans": 3,
         "unknown_stop_seconds": 8.0,
         "loading_stop_seconds": 45.0,
