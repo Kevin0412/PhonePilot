@@ -132,6 +132,9 @@ class AdbExecutor(Executor):
         # ADB 的 input text 只认 ASCII；中文用 ADBKeyboard 广播输入。
         if self._has_adbkeyboard():
             self._ensure_adbkb()
+            # 先清空已有内容（搜索框可能有旧文字残留），再输入新内容
+            self._run("shell", "am broadcast -a ADB_CLEAR_TEXT", timeout=5)
+            time.sleep(0.3)
             msg = value.replace("\\", "\\\\").replace("'", "'\\''")
             self._run("shell", f"am broadcast -a ADB_INPUT_TEXT --es msg '{msg}'", timeout=8)
             # 输入完立刻恢复原输入法——不让 ADBKeyboard 停留影响用户手动操作

@@ -538,18 +538,8 @@ def run_llm_agent(
 
         image, obs = observe(executor, ocr, icons, ui_detect=ui_detect, with_foreground=True, with_cv=with_cv, with_ui=with_ui,
                              vl_caption=(ui_detect is not None and obs.signature != _last_caption_sig) if False else False)
-        # VL 标注放到 observe 外面：先拿 signature，签名变了才调（避免同页重复调 VL）
-        if ui_detect is not None and obs.signature != _last_caption_sig:
-            unlabeled = [e for e in obs.elements if e.text in ("[控件]", "") and e.kind in ("ui", "control")]
-            if unlabeled:
-                try:
-                    from ..perception.vl_caption import caption_controls
-                    obs = Observation(image_w=obs.image_w, image_h=obs.image_h,
-                                     elements=caption_controls(image, obs.elements),
-                                     signature=obs.signature, foreground=obs.foreground)
-                except Exception as exc:  # noqa: BLE001
-                    log.debug("VL 标注失败：%s", exc)
-            _last_caption_sig = obs.signature
+        # VL 标注：仅在 LLM 卡住时按需调（同步每帧调太慢——MiMo VL ~20s/次，B 站等动态页几乎每步都触发）。
+        # TODO: 改为异步或在 consec_fail/重复时升级调用
         m = contains(obs.elements, profile.hard_stop_markers)
         if m:
             return manual_stop(executor, obs, f"命中硬停止标志：{m}", run_dir=run_dir, image=image)
@@ -708,6 +698,10 @@ def run_llm_agent(
             executor.prepare_input()
             _focus_input(executor, obs, [], profile, planner=planner, image=image, point=action.point)
             time.sleep(0.6)
+            # --- text 后置处理 ---
+            # 1) 搜索页自动按回车确认搜索（不依赖 LLM 记得按 ENTER）
+            _is_search = "search" in (obs.foreground or "").lower() or "搜索" in (obs.foreground or "")
+            _text_post_enter = _is_search
         else:
             if action.kind in ("scroll", "fling", "swipe", "drag"):
                 if not budget.scroll_ok():
@@ -723,6 +717,13 @@ def run_llm_agent(
             time.sleep(loop.poll_interval)
             continue
         log.info("▶ 执行：%s", desc)
+
+        # text 后置：搜索页自动回车
+        if action.kind == "text" and action.text and _text_post_enter:
+            time.sleep(0.5)
+            executor.key("KEYCODE_ENTER")
+            log.info("▶ 搜索页自动回车确认")
+            time.sleep(1.5)  # 等搜索结果加载
 
         changed = None if action.is_nav_gesture else wait_for_change(
             executor, image, timeout=loop.transition_timeout, threshold=loop.transition_threshold
