@@ -1,0 +1,23 @@
+# 实机复杂样例 1：桌面 -> 设置 -> WLAN。
+#
+# 不用 intent、不写坐标，验证真实 OCR/UIA 元素定位、点击推进、目标页完成判定。
+
+task: 打开设置并进入 WLAN 页面
+profile: profiles/android_settings.json
+
+mock_plan:
+  goal: 通过点击进入系统 WLAN 页面
+  overall_risk: low
+  steps:
+    - goal: 从桌面打开设置
+      success_markers: [WLAN, 蓝牙, 移动网络, 显示和亮度, 搜索设置项]
+      target_markers: [设置]
+      package: com.android.settings
+      foreground_markers: [HWSettings]
+      risk: low
+    - goal: 进入 WLAN 页面
+      success_markers: [可用网络, 可用WLAN, 已连接, 更多WLAN设置, 网络加速]
+      target_markers: [WLAN, 无线网络]
+      foreground_markers: ["Settings$WifiSettingsActivity"]
+      risk: low
+  final_success_markers: [可用网络, 可用WLAN, 已连接, 网络加速]

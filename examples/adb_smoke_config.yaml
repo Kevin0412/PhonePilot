@@ -1,0 +1,27 @@
+# 实机 smoke test 的快路径配置。
+#
+# 保留 OCR + UIAutomator 控件树，关闭图标模板和 UI 检测模型，先追求可重复跑通。
+# 想测完整感知栈时可不用这个配置，直接跑默认 config。
+
+executor:
+  kind: adb
+  adb_path: adb
+
+icons:
+  enabled: false
+
+perception:
+  cv: false
+  ui: true
+
+vision:
+  enabled: false
+
+loop:
+  after_click_delay: 0.8
+  transition_timeout: 8.0
+
+budget:
+  max_steps: 5
+  max_no_change_retries: 1
+  total_timeout_s: 90.0

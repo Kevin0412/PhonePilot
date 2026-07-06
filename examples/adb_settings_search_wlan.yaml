@@ -1,0 +1,28 @@
+# 实机复杂样例 2：桌面 -> 设置 -> 搜索 -> 输入 WLAN -> 打开搜索结果。
+#
+# 不用 intent、不写坐标，额外覆盖输入、动态搜索结果、同名元素消歧。
+
+task: 在设置中搜索并打开 WLAN 页面
+profile: profiles/android_settings.json
+
+mock_plan:
+  goal: 通过设置搜索进入 WLAN 页面
+  overall_risk: medium
+  steps:
+    - goal: 从桌面打开设置
+      success_markers: [WLAN, 蓝牙, 移动网络, 显示和亮度, 搜索设置项]
+      target_markers: [设置]
+      package: com.android.settings
+      foreground_markers: [HWSettings]
+      risk: low
+    - goal: 在设置搜索框输入 WLAN
+      success_markers: [WLAN]
+      target_markers: [搜索设置项, 搜索设置, 搜索]
+      input_text: WLAN
+      risk: medium
+    - goal: 打开 WLAN 搜索结果
+      success_markers: [可用网络, 可用WLAN, 已连接, 网络加速]
+      target_markers: [WLAN, 无线网络]
+      foreground_markers: ["Settings$WifiSettingsActivity"]
+      risk: low
+  final_success_markers: [可用网络, 可用WLAN, 已连接, 网络加速]

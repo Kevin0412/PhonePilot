@@ -89,6 +89,23 @@ def build_ui_detect(cfg: dict):
     return OmniParserDetector(p, confidence=ud.get("confidence", 0.15), long_side=ud.get("long_side", 1280))
 
 
+def build_perception_extras(cfg: dict, executor):
+    """按执行器/配置启用可选感知组件。
+
+    Mock 路径的元素来自 JSON 帧；再跑图标模板或 UI 检测只会让离线 smoke test 更慢、更脆。
+    真机路径里，UI 检测器归到 perception.cv 开关下：关掉 CV 就不加载/运行重型检测模型。
+    """
+    from .executor.mock import MockExecutor
+
+    is_mock = isinstance(executor, MockExecutor)
+    perc = cfg.get("perception", {})
+    with_cv = bool(perc.get("cv", False)) and not is_mock
+    with_ui = bool(perc.get("ui", False)) and not is_mock
+    icons = None if is_mock else build_icons(cfg)
+    ui_detect = build_ui_detect(cfg) if with_cv else None
+    return icons, ui_detect, with_cv, with_ui
+
+
 def build_llm(cfg: dict, *, mock_plan: dict | None = None):
     kind = cfg["llm"]["kind"]
     if kind == "mock":
@@ -189,6 +206,9 @@ def cmd_run(args, cfg: dict) -> int:
             log.error("加载计划文件失败（%s）：%s", args.plan_file, exc)
             return 1
         mock_plan = pf.get("mock_plan") or pf
+    if cfg["llm"]["kind"] == "mock" and mock_plan is None:
+        log.error("mock LLM 需要 --example 或 --plan-file 提供 mock_plan；可先运行：phonepilot run --example examples/open_wlan.yaml")
+        return 1
 
     try:
         profile = Profile.load(profile_path)
@@ -202,8 +222,7 @@ def cmd_run(args, cfg: dict) -> int:
 
     executor = build_executor(cfg, mock_frames=mock_frames)
     ocr = build_ocr(cfg, executor)
-    icons = build_icons(cfg)
-    ui_detect = build_ui_detect(cfg)
+    icons, ui_detect, with_cv, with_ui = build_perception_extras(cfg, executor)
     llm = build_llm(cfg, mock_plan=mock_plan)
     vision = build_vision(cfg)
     confirm_fn = (lambda _p: "y") if cfg["risk"]["auto_confirm_all"] else None
@@ -212,13 +231,6 @@ def cmd_run(args, cfg: dict) -> int:
     budget = dataclass_from(Budget, cfg["budget"])
     loop = dataclass_from(LoopConfig, cfg["loop"])
     run_dir = _make_run_dir(cfg, enabled=not args.no_run_dir)
-
-    from .executor.mock import MockExecutor
-
-    perc = cfg.get("perception", {})
-    is_mock = isinstance(executor, MockExecutor)
-    with_cv = bool(perc.get("cv", False)) and not is_mock   # CV/控件树需真机像素，mock 跳过
-    with_ui = bool(perc.get("ui", False)) and not is_mock
 
     log.info("任务：%s（模式=%s，CV画框=%s 控件树=%s UI检测=%s）",
              task, args.mode, with_cv, with_ui, ui_detect is not None)
@@ -295,15 +307,7 @@ def cmd_inspect(args, cfg: dict) -> int:
         mock_frames = bundle.get("mock_frames")
     executor = build_executor(cfg, mock_frames=mock_frames)
     ocr = build_ocr(cfg, executor)
-    icons = build_icons(cfg)
-    ui_detect = build_ui_detect(cfg)
-
-    from .executor.mock import MockExecutor as _ME
-
-    perc = cfg.get("perception", {})
-    is_mock = isinstance(executor, _ME)
-    with_cv = bool(perc.get("cv", False)) and not is_mock
-    with_ui = bool(perc.get("ui", False)) and not is_mock
+    icons, ui_detect, with_cv, with_ui = build_perception_extras(cfg, executor)
 
     _img, obs = observe(executor, ocr, icons, ui_detect=ui_detect,
                         with_cv=with_cv, with_ui=with_ui)

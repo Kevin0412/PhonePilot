@@ -6,11 +6,13 @@ from phonepilot.perception.signature import (
     page_signature,
 )
 from tests.conftest import el
+from phonepilot.types import ScreenElement
 
 
 def test_normalize_strips_space_punct_and_lowercases():
     assert normalize_text(" 立即 购买！") == "立即购买"
     assert normalize_text("Wi-Fi") == "wifi"
+    assert normalize_text("WLAN+") == "wlan+"
 
 
 def test_signature_stable_across_volatile_text_and_reorder():
@@ -53,3 +55,21 @@ def test_find_candidate_priority_order():
     els = [el("WLAN"), el("蓝牙")]
     idx, _e, marker = find_candidate(els, ["不在", "WLAN"])
     assert marker == "WLAN" and idx == 0
+
+
+def test_find_element_avoids_secondary_result_line_when_exact_matches_repeat():
+    # 搜索结果常见布局：标题行「更多WLAN设置」下面有路径/分类行「WLAN」。
+    # 精确匹配 WLAN 时不应优先点这个副标题，否则会打开相邻功能页。
+    els = [
+        ScreenElement.from_dict({"text": "更多WLAN设置", "box": [[250, 1000], [614, 1000], [614, 1055], [250, 1055]]}),
+        ScreenElement.from_dict({"text": "WLAN", "box": [[248, 1078], [380, 1078], [380, 1124], [248, 1124]]}),
+        ScreenElement.from_dict({"text": "WLAN", "box": [[248, 1848], [398, 1848], [398, 1904], [248, 1904]]}),
+    ]
+    hit = find_element(els, "WLAN")
+    assert hit is not None
+    assert hit[0] == 2
+
+
+def test_find_element_short_ascii_token_does_not_match_longer_feature_name():
+    els = [el("WLAN+"), el("WLAN直连"), el("公共WLAN推荐")]
+    assert find_element(els, "WLAN") is None

@@ -1,7 +1,7 @@
 """端到端：MockExecutor + MockLLM 跑通整条 感知→决策→执行 闭环。"""
 
 from phonepilot.agent.budget import Budget
-from phonepilot.agent.loop import DONE, HANDOVER, LoopConfig, _find_input_element, run_agent
+from phonepilot.agent.loop import DONE, HANDOVER, LoopConfig, _find_input_element, _has_top_marker, run_agent
 from phonepilot.types import Observation
 from phonepilot.executor.mock import MockExecutor, MockFrame, MockOcrEngine
 from phonepilot.planner.llm_mock import MockLLMClient
@@ -93,6 +93,42 @@ def test_intent_step_completes_by_navigation_not_text():
     assert rc == DONE
     assert kinds == ["intent"]  # 只发 intent，零点击
     assert ex.actions[0]["action"] == "android.settings.WIFI_SETTINGS"
+
+
+def test_target_page_title_completes_after_navigation():
+    # 真实 ROM 的二级页文案会漂移：进入 WLAN 页后可能没有「可用网络」，
+    # 但顶部标题已经是 WLAN。已发生导航时应判定本步完成，避免反复点击同名标题/开关。
+    frames = [
+        MockFrame([el("设置", center=(620, 1300))], "launcher"),
+        MockFrame([el("设置", center=(180, 200)), el("WLAN", center=(540, 520)), el("蓝牙")], "settings"),
+        MockFrame([el("WLAN", center=(240, 180)), el("网络加速"), el("更多WLAN设置")], "settings/wlan"),
+    ]
+    plan = {
+        "steps": [
+            {"goal": "打开设置", "success_markers": ["WLAN", "蓝牙"], "target_markers": ["设置"]},
+            {"goal": "进入WLAN", "success_markers": ["可用网络"], "target_markers": ["WLAN"]},
+        ],
+        "final_success_markers": ["可用网络"],
+    }
+    rc, ex = _run(frames, plan, budget=Budget(max_steps=5))
+    taps = [a for a in ex.actions if a["kind"] == "tap"]
+    assert rc == DONE
+    assert len(taps) == 2
+
+
+def test_top_marker_requires_exact_for_short_targets():
+    obs = Observation(
+        image_w=1080, image_h=2400,
+        elements=[el("更多WLAN设置", center=(240, 180))],
+        signature="", foreground="",
+    )
+    assert not _has_top_marker(obs, ["WLAN"])
+    obs2 = Observation(
+        image_w=1080, image_h=2400,
+        elements=[el("WLAN", center=(240, 180))],
+        signature="", foreground="",
+    )
+    assert _has_top_marker(obs2, ["WLAN"])
 
 
 def test_input_text_step_types_via_executor():

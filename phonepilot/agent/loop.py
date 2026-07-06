@@ -14,7 +14,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Optional
 
-from ..perception.signature import contains, find_candidate
+from ..perception.signature import contains, find_candidate, normalize_text
 from ..profile import Profile
 from ..types import Action, Decision, Observation, Plan
 from .budget import Budget
@@ -116,6 +116,36 @@ def _find_input_element(obs: Observation) -> Optional[tuple[int, int]]:
     return best
 
 
+def _has_top_marker(obs: Observation, markers: list[str], *, top_ratio: float = 0.20) -> bool:
+    """当前页顶部标题/导航区是否出现目标词。
+
+    这是完成判定的兜底：不同 ROM 会把「可用网络」写成「可用 WLAN」等，success_markers
+    容易漂移；但点击进入目标页后，页面标题通常会稳定包含目标入口词。只在已经发生导航后使用。
+    """
+    if not markers:
+        return False
+    top_y = int(obs.image_h * top_ratio)
+    marker_norms = [normalize_text(m) for m in markers if normalize_text(m)]
+    if not marker_norms:
+        return False
+    for el in obs.elements:
+        if el.center[1] > top_y:
+            continue
+        text_norm = normalize_text(el.text)
+        if not text_norm:
+            continue
+        if any(text_norm == m or (len(m) > 4 and (m in text_norm or text_norm in m)) for m in marker_norms):
+            return True
+    return False
+
+
+def _foreground_matches(foreground: str, markers: list[str]) -> bool:
+    if not markers:
+        return True
+    fg = foreground or ""
+    return any(m and m in fg for m in markers)
+
+
 def _focus_input(executor, obs, target_markers, profile, *, planner=None, image=None, point=None) -> tuple[int, int]:
     """聚焦输入框，分层检测（最准+最便宜优先）：
     1) UIAutomator EditText（标准 app 最精确；QQ/微信自绘拿不到）
@@ -201,6 +231,8 @@ def run_agent(
     launched_step_idx = -1                    # 已用命令启动过 app 的步序号（避免重复启动）
     typed_step_idx = -1                       # 已打字的步序号（避免重复输入）
     replans = 0                               # 已重规划次数
+    last_completed_step_idx = -1
+    last_completion_kind = ""
 
     def now() -> float:
         return time.monotonic()
@@ -269,6 +301,7 @@ def run_agent(
         #    防误判：只有「进入本步后页面确实变化过(即真导航了)」或本步无可点目标时，才允许用
         #    success_markers 判完成——否则上级菜单里的入口名(如「WLAN」)会被当成「已进入 WLAN 页」。
         while step_idx < len(plan.steps):
+            nonlocal_last_idx = step_idx
             cur = plan.steps[step_idx]
             if step_entered_sig is None:
                 step_entered_sig = obs.signature
@@ -277,13 +310,30 @@ def run_agent(
             pkg_open = bool(cur.package) and cur.package in (obs.foreground or "")
             intent_reached = bool(cur.intent) and launched_step_idx == step_idx and navigated
             typed_done = bool(cur.input_text) and typed_step_idx == step_idx
-            done_here = pkg_open or intent_reached or typed_done or (
+            target_page_reached = bool(cur.target_markers) and navigated and _has_top_marker(obs, cur.target_markers)
+            foreground_ok = _foreground_matches(obs.foreground, cur.foreground_markers)
+            foreground_reached = bool(cur.foreground_markers) and foreground_ok and navigated
+            base_done = pkg_open or intent_reached or typed_done or foreground_reached or (
                 bool(cur.success_markers)
                 and contains(obs.elements, cur.success_markers)
                 and (navigated or not cur.target_markers)
-            )
+            ) or target_page_reached
+            done_here = base_done and foreground_ok
             if done_here:
                 log.info("✓ 子目标完成（%d/%d）：%s", step_idx + 1, len(plan.steps), cur.goal)
+                last_completed_step_idx = nonlocal_last_idx
+                if pkg_open:
+                    last_completion_kind = "package"
+                elif intent_reached:
+                    last_completion_kind = "intent"
+                elif typed_done:
+                    last_completion_kind = "typed"
+                elif target_page_reached:
+                    last_completion_kind = "target-page"
+                elif foreground_reached:
+                    last_completion_kind = "foreground"
+                else:
+                    last_completion_kind = "marker"
                 step_idx += 1
                 step_entered_sig = None
             else:
@@ -292,7 +342,12 @@ def run_agent(
         if step_idx >= len(plan.steps):
             # 末步是命令驱动(intent/package)的，达成即视作完成——最终文字标志跨 ROM 易变，不强求
             last_cmd = bool(plan.steps) and bool(plan.steps[-1].intent or plan.steps[-1].package)
-            if not plan.final_success_markers or last_cmd or contains(obs.elements, plan.final_success_markers):
+            last_inferred = (
+                bool(plan.steps)
+                and last_completed_step_idx == len(plan.steps) - 1
+                and last_completion_kind in {"target-page", "intent", "package", "typed", "foreground"}
+            )
+            if not plan.final_success_markers or last_cmd or contains(obs.elements, plan.final_success_markers) or last_inferred:
                 log.info("✅ 任务完成：%s", plan.task)
                 _save_audit(run_dir, f"{_stamp()}_DONE", image, obs, {"task": plan.task})
                 return DONE

@@ -16,7 +16,8 @@ from typing import Iterable, Optional, Sequence
 from ..types import ScreenElement
 
 # 去除空格与各类标点/分隔符，便于模糊匹配。
-_NORMALIZE_RE = re.compile(r"[\s|丨·•,，。、.!！?？:：;；()（）<>《》【】\[\]/\\~`@#\$%\^&\*_=+\"'-]+")
+_NORMALIZE_RE = re.compile(r"[\s|丨·•,，。、.!！?？:：;；()（）<>《》【】\[\]/\\~`@#\$%\^&\*_=\"'-]+")
+_SHORT_ASCII_TOKEN = re.compile(r"^[a-z0-9]{1,4}$")
 
 _PURE_DIGITS = re.compile(r"^\d+$")
 _CLOCK = re.compile(r"^\d{1,2}:\d{2}(:\d{2})?$")
@@ -90,6 +91,45 @@ def _rejected(text_norm: str, reject_norms: Sequence[str]) -> bool:
     return any(r and r in text_norm for r in reject_norms)
 
 
+def _strict_exact_target(text_norm: str) -> bool:
+    """短英文/数字 token（如 WLAN、QQ、5G）包含匹配很容易误点 WLAN+/WLAN直连。"""
+    return bool(_SHORT_ASCII_TOKEN.match(text_norm))
+
+
+def _looks_like_secondary_line(elements: Sequence[ScreenElement], idx: int, text_norm: str) -> bool:
+    """判断某个短文本是否像搜索结果/列表项的副标题或路径行。
+
+    典型失败：搜索「WLAN」后，结果行标题是「更多WLAN设置」，下一行路径/分类是「WLAN」。
+    旧逻辑会因为「WLAN」精确匹配而点到这整行，实际进入相邻功能页。
+
+    这里不用坐标常量，只看相邻文本关系：短文本位于更长文本正下方、横向重叠、间距很小，
+    就优先视为副标题，精确匹配排序时靠后。
+    """
+    if not text_norm or idx < 0 or idx >= len(elements):
+        return False
+    cur = elements[idx]
+    cx1, cy1, cx2, cy2 = cur.bounds
+    cw = max(1, cx2 - cx1)
+    ch = max(1, cy2 - cy1)
+    for j, other in enumerate(elements):
+        if j == idx:
+            continue
+        ot = normalize_text(other.text)
+        if not ot or ot == text_norm or len(ot) <= len(text_norm):
+            continue
+        ox1, oy1, ox2, oy2 = other.bounds
+        if oy2 > cy1:
+            continue
+        gap = cy1 - oy2
+        if gap > max(16, ch):
+            continue
+        overlap = max(0, min(cx2, ox2) - max(cx1, ox1))
+        if overlap / float(cw) < 0.35:
+            continue
+        return True
+    return False
+
+
 def find_element(
     elements: Sequence[ScreenElement],
     target: str,
@@ -111,20 +151,28 @@ def find_element(
     def skip(el: ScreenElement, t: str) -> bool:
         return not t or _rejected(t, rejects) or (min_y and el.center[1] < min_y)
 
-    # pass 1: 精确
+    # pass 1: 精确。多个精确命中时，优先主标题/主行，避开搜索结果里的副标题/路径行。
+    exact: list[tuple[int, ScreenElement]] = []
     for i, el in enumerate(elements):
         t = normalize_text(el.text)
         if skip(el, t):
             continue
         if t == tgt:
-            return (i, el)
+            exact.append((i, el))
+    if exact:
+        exact.sort(key=lambda item: (_looks_like_secondary_line(elements, item[0], tgt), item[1].center[1]))
+        return exact[0]
     # pass 2: 包含（任一方向）
-    for i, el in enumerate(elements):
-        t = normalize_text(el.text)
-        if skip(el, t):
-            continue
-        if tgt in t or t in tgt:
-            return (i, el)
+    if not _strict_exact_target(tgt):
+        for i, el in enumerate(elements):
+            t = normalize_text(el.text)
+            if skip(el, t):
+                continue
+            if tgt in t or t in tgt:
+                return (i, el)
+    if _strict_exact_target(tgt):
+        return None
+
     # pass 3: 模糊
     best_ratio = 0.0
     best: Optional[tuple[int, ScreenElement]] = None

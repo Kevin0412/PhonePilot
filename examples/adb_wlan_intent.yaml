@@ -1,0 +1,18 @@
+# 实机 ADB 烟测：用 Android intent 直达 WLAN 设置页。
+#
+# 目标是验证最小闭环：ADB 执行器 -> 截图/OCR/UIA 感知 -> mock plan -> intent 执行 -> 完成审计。
+# 低风险、可重复运行，不修改网络开关，不点击支付/发送/删除类控件。
+
+task: 打开 WLAN 设置页
+profile: profiles/android_settings.json
+
+mock_plan:
+  goal: 打开 WLAN 设置页
+  overall_risk: low
+  steps:
+    - goal: 直达 WLAN 设置页
+      intent: android.settings.WIFI_SETTINGS
+      success_markers: [WLAN, WLAN+, 可用网络, 已连接]
+      target_markers: []
+      risk: low
+  final_success_markers: [WLAN, 可用网络, 已连接]

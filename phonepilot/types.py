@@ -223,6 +223,7 @@ class Step:
     intent: str = ""            # 若本步可直达某系统页面，填 intent action -> 命令直达（最稳）
     input_text: str = ""        # 若本步是输入文字，填要输入的内容（先聚焦 target，再用输入法打字）
     verify: list[str] = field(default_factory=list)  # 执行本步动作前必须出现的文字（前置校验，全部命中才执行）
+    foreground_markers: list[str] = field(default_factory=list)  # 完成时前台 Activity/包名应包含的标志（可选）
     risk: RiskLevel = RiskLevel.LOW
 
     def to_dict(self) -> dict:
@@ -234,6 +235,7 @@ class Step:
             "intent": self.intent,
             "input_text": self.input_text,
             "verify": list(self.verify),
+            "foreground_markers": list(self.foreground_markers),
             "risk": self.risk.value,
         }
 
@@ -247,6 +249,7 @@ class Step:
             intent=str(data.get("intent", "")).strip(),
             input_text=str(data.get("input_text", "")),
             verify=[str(s) for s in data.get("verify", []) if str(s).strip()],
+            foreground_markers=[str(s) for s in data.get("foreground_markers", []) if str(s).strip()],
             risk=RiskLevel.from_str(data.get("risk")),
         )
 

@@ -31,6 +31,8 @@ PLAN_SYSTEM_PROMPT = """你是手机自动化 agent 的任务规划器，负责�
    - verify（可选但重要）：执行本步动作前必须出现在屏幕上的文字（前置校验，全部命中才执行）。
      自动操作不可靠，可能进错页面/点错联系人，所以涉及输入/发送给特定对象的步骤，verify 要带上对方标识
      （如收件人姓名），确保「确实在对的人/对的页面」才动手；校验不过框架会重规划或停止，绝不误发。
+   - foreground_markers（可选）：若能用前台包名/Activity 辅助确认页面，填应出现在 foreground 中的稳定片段。
+     例如系统 WLAN 主页面可用 "Settings$WifiSettingsActivity" 区分「WLAN」与「更多 WLAN 设置」等相邻页面。
    - risk：该步风险等级 low/medium/high；涉及支付、删除、发送、授权、转账、卸载等填 high。
 3. final_success_markers：整个任务完成后应出现的文字。
 4. overall_risk：整体风险等级。
@@ -44,7 +46,7 @@ PLAN_SYSTEM_PROMPT = """你是手机自动化 agent 的任务规划器，负责�
 原则：能用命令直达就别逐级点击——优先 intent，其次 package；输入文字用 input_text；高风险/发给特定对象的步骤务必带 verify。
 
 只输出一个 JSON 对象，不要任何解释或多余文字：
-{"goal":"...","steps":[{"goal":"...","success_markers":["..."],"target_markers":["..."],"intent":"","package":"","input_text":"","verify":[],"risk":"low"}],"final_success_markers":["..."],"overall_risk":"low"}
+{"goal":"...","steps":[{"goal":"...","success_markers":["..."],"target_markers":["..."],"intent":"","package":"","input_text":"","verify":[],"foreground_markers":[],"risk":"low"}],"final_success_markers":["..."],"overall_risk":"low"}
 """
 
 # 含独有短语「单步动作」——用于 Mock 路由识别。
@@ -57,6 +59,8 @@ DECIDE_SYSTEM_PROMPT = """你是手机自动化 agent 的页面决策器，根�
 1. 若候选控件就在屏幕上，返回点击它（action=tap，index 填该元素编号，text 填其原文）。
    注意空间消歧：同名文字可能出现多处（如顶部搜索框的「王信」@y≈0.08 vs 下方结果列表的「王信」@y≈0.2），
    要根据当前子目标选对的那个——找联系人要点结果列表里的、靠下的，而不是顶部输入框里的回显。
+   搜索结果里经常有「标题」和下一行「路径/分类/面包屑」（如 A > B、更多设置下方的 WLAN），
+   要点标题行，不要点路径/副标题；短英文目标（如 WLAN/QQ/5G）不能把 WLAN+、WLAN直连这类更长功能名当成同一个目标。
 2. 若当前子目标的控件不在屏幕上，可能在下方，返回向下滚动寻找（action=scroll，direction=down）。
 3. 页面在加载/排队（出现「加载中」「请稍候」等），返回等待（action=wait）。
 4. 出现验证码、风控、支付收银台、危险确认等需要人来处理的页面，返回停止（action=stop）。
@@ -101,6 +105,8 @@ ACT_SYSTEM_PROMPT = """你是手机 GUI 自动化 agent。给你总任务、当�
    进了搜索页/见到搜索框就别再 tap 它，直接用 **text 动作**输入搜索词。
    输入后点页面上的**「搜索」按钮**或用 **key ENTER** 触发搜索——**不要点搜索建议/联想词**（那会搜别的内容）。
 2. 用坐标 @(x,y) 做空间判断；同名文字按语义选对的——找联系人点结果列表里、靠下的那个，不要点顶部搜索框里的回显。
+   搜索结果要点主标题，不要点下一行的路径/分类/面包屑；短英文目标（如 WLAN/QQ/5G）必须精确匹配，
+   不要把 WLAN+、WLAN直连、公共WLAN推荐等相邻功能当成 WLAN。
 3. 给特定对象发消息：进入聊天后先确认顶部是对方名字，再输入、再发送；不确定在不在对的人聊天里就别发，返回 stop。
 4. **绝不重复无效动作**：同一个动作做了 2 次没变化就**必须换思路**（back 返回、scroll 翻页、tap 其他控件）。
    历史里看到"⚠"标记说明你已经在重复了，立刻改变策略。

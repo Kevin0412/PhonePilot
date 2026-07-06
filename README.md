@@ -33,11 +33,7 @@ pip install -e ".[dev]"     # 跑测试
 ## 快速开始（无真机，纯逻辑跑通）
 
 ```bash
-phonepilot run \
-  --task "打开设置并进入 WLAN 页面" \
-  --executor mock \
-  --llm mock \
-  --profile profiles/android_settings.json
+phonepilot run --example examples/open_wlan.yaml
 ```
 
 真连 LLM 验证规划（无需真机，把一句话变成结构化 Plan 并打印）：
@@ -59,6 +55,20 @@ phonepilot inspect --executor adb        # 只截图+OCR+图标+页面签名，�
 phonepilot run --executor adb --llm deepseek --task "..." --dry-run   # 决策全跑，执行空操作+审计落盘
 phonepilot run --executor adb --llm deepseek --task "..."             # 真执行
 ```
+
+低风险实机烟测（固定 mock plan + 系统 WLAN intent，不依赖真实 LLM）：
+
+```bash
+RUNS=3 scripts/adb_smoke.sh
+```
+
+复杂实机回归（不调真实 LLM，不写坐标；覆盖 package 启动、设置页点击、搜索输入、搜索结果消歧）：
+
+```bash
+scripts/adb_complex_suite.sh
+```
+
+注意：`--example` 会强制走 mock executor；实机 ADB 测试请用 `--plan-file examples/adb_wlan_intent.yaml` 或直接用上面的脚本。
 
 密钥放 `.env`（见 `.env.example`），或导出为环境变量。
 
