@@ -83,3 +83,13 @@ scripts/adb_complex_suite.sh
 ## 状态
 
 MVP 骨架。已实现：执行器全原语、手势映射、本地规则（含滚动翻找）、快速文本 LLM 路径、结构化感知、安全/风险闸门、端到端 Mock。接口+桩就位、可逐个试：结构化 LLM 路径、图标模板、视觉适配器。
+
+## Automatic rendering / 自动渲染
+
+[![Render gallery](https://github.com/Kevin0412/PhonePilot/actions/workflows/render-gallery.yml/badge.svg)](https://github.com/Kevin0412/PhonePilot/actions/workflows/render-gallery.yml)
+
+![Generated preview](docs/generated/preview.webp)
+
+Runs the existing mock WLAN example without credentials or a phone. The preview is a diagram of the mock input elements, accompanied by the actual CLI execution log in artifacts; not a real Android screenshot.
+
+[Download workflow artifacts](https://github.com/Kevin0412/PhonePilot/actions).
